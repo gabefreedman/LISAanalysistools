@@ -105,11 +105,8 @@ class custom_build_ext(build_ext):
         build_ext.build_extensions(self)
 
 
-try:
-    CUDA = locate_cuda()
-    run_cuda_install = True
-except OSError:
-    run_cuda_install = False
+CUDA = locate_cuda()
+run_cuda_install = True
 
 
 # Obtain the numpy include directory. This logic works across numpy versions.
