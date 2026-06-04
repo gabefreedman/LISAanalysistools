@@ -38,6 +38,7 @@ dependencies = [
   "scipy",
   "tqdm",
   "wrapt",
+  "eryn<1.2",                                # sources/utils.py imports TransformContainer; API changed in 1.2
   #@DEPS_CUPYCUDA@,
   #@DEPS_LISATOOLSCORE@,
 ]
@@ -89,6 +90,7 @@ optional-dependencies.testing = [
 version_scheme = "no-guess-dev"
 local_scheme = "node-and-date"
 version_file = "src/lisatools/_version.py"
+fallback_version = "1.2.8"
 
 [tool.scikit-build]
 wheel.packages = ["src/lisatools"]

@@ -102,6 +102,8 @@ void detector_part(py::module &m) {
     .def("get_normal_unit_vec_wrap", &OrbitsWrap::get_normal_unit_vec_wrap, "Get link normal vector.")
     // You can also expose public data members directly using def_readwrite
     .def_readwrite("orbits", &OrbitsWrap::orbits)
+    .def_property_readonly("ptr",
+        [](const OrbitsWrap& self) { return reinterpret_cast<size_t>(&self); })
     // .def("get_link_ind", &OrbitsWrap::get_link_ind, "Get link index.")
     ;
 
