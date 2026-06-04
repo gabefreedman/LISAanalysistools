@@ -148,7 +148,7 @@ def inner_product(
             func(temp1[ind_start:].conj() * temp2[ind_start:]) * inv_psd_tmp[ind_start:]
         )  # assumes right summation rule
         # df is sunk into trapz
-        tmp_out = factor * 4 * xp.trapz(y, x=x[ind_start:])
+        tmp_out = factor * 4 * xp.trapezoid(y, x=x[ind_start:])
         out += tmp_out
 
     # normalize the inner produce
