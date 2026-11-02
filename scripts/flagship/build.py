@@ -107,6 +107,8 @@ def tokens(run: "_runs.Run") -> dict:
             "WARM_NPZ": parent.warm_npz,
             "PARENT_MBHB_IDS": parent.mbhb_ids, "PARENT_EMRI_IDS": parent.emri_ids,
             "PARENT_SOBHB_IDS": parent.sobhb_ids,
+            # every earlier run, nearest first (runs.Run.lineage, 2026-11-01)
+            "MONITOR_ADD_INFO": ":".join(f"{_runs.OUTPUT_ROOT}/{d}" for d in run.lineage()),
         })
     tok["HEADER"] = header(run, tok)
     return tok
@@ -151,7 +153,8 @@ def header(run: "_runs.Run", tok: dict) -> str:
         L.append("#     hand-set offline estimate, ruling 2026-09-25); the source")
         L.append(f"#     warm start copies its SNR > 10 leaves by catalogue id: MBHB "
                  f"{parent.mbhb_ids}, every EMRI / SOBHB; the monitor page overlays")
-        L.append(f"#     it: GF_MONITOR_ADD_INFO={_runs.OUTPUT_ROOT}/{parent.store_dirname}).")
+        L.append("#     every earlier run, nearest first: GF_MONITOR_ADD_INFO="
+                 f"{tok['MONITOR_ADD_INFO']}).")
         L.append("#     The parent store must be COMPLETE and readable when this launches.")
     else:
         L.append("#   NO PARENT: the no-parent branches of launcher.sh.in (no GB warm start, no")

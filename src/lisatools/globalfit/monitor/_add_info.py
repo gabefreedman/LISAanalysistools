@@ -55,9 +55,12 @@ rule): run directories joined by ``os.pathsep`` (``:``). The CLI's repeatable
 ``--add-info RUN_DIR`` wins over it when given; ``none`` / ``0`` / ``off``
 means no added run (so ``--add-info none`` silences an exported list).
 
-In production both launchers export it, so every in-run page overlays the
-previous run: the 9mo job overlays ``gf_prod_6mo_v9_4gpu``, the 12mo job
-``gf_prod_9mo_v9_copy`` (both under ``/shared/data/global_fit_output``). The
+In production the flagship launchers export it, so every in-run page overlays
+EVERY EARLIER RUN, nearest first (``scripts/flagship/runs.py`` ``Run.lineage``,
+2026-11-01): the 9mo job overlays ``gf_prod_6mo_v9_4gpu``, the 12mo job
+``gf_prod_9mo_v9`` then ``gf_prod_6mo_v9_4gpu``, the 18mo and 24mo jobs their
+whole chain back to the same 6mo (all under ``/shared/data/global_fit_output``).
+A fourth added run and later share :data:`STYLE_OTHER`. The
 generator calls :func:`parse_add_info` and :func:`load_added_runs` near its
 top, :func:`compute_recoveries` in the recovery section, the ``overlay_*``
 functions on the figures listed above and :func:`caption_html` for their

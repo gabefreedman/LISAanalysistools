@@ -6234,10 +6234,33 @@ if TRU is not None:
             ax[1].plot(_s, _n, color=_c, lw=1.8)
         ax[0].set_ylabel("cumulative fraction"); ax[0].set_ylim(0, 1)
         ax[0].legend(fontsize=8, loc="upper left")
-        ax[1].axhline(NDET, color=FG, ls="--", lw=1.0)
-        ax[1].text(0.02, NDET, f" {NDET} detectable injections", color=FG,
-                   fontsize=8, va="bottom")
-        ax[1].set_yscale("log"); ax[1].set_ylim(1, 2500); ax[1].set_xlim(0, 1)
+        # DETECTABLE-SET REFERENCE LINES AND THE UPPER LIMIT (2026-11-02, team
+        # request "fix the scale on this plot"). A fixed ylim(1, 2500) cut the
+        # 9mo (2,963 detectable) and 12mo (3,608) survival curves and their
+        # reference line off the top of the panel, and the line's label then
+        # landed in the CDF panel above. One reference line per run: this
+        # page's NDET (every arm in ARMS shares it, the ndet guard above) in
+        # this run's own curve colour (FG if its arm is absent), and each
+        # added run's OWN truth-set count in that run's colour.
+        # The limit follows the largest line or curve, with headroom so the
+        # top line stays clear of the frame. Labels go in a legend: the counts
+        # are too close on a log axis (2,495 / 2,963 / 3,608) for text labels.
+        _ref = [(NDET, ARM_COL.get(ADD_BASE_LABEL, FG),
+                 f"{ADD_BASE_LABEL}: {NDET:,} detectable injections")]
+        if ADDED:
+            for _A in ADDED:
+                try:
+                    _ref.append((int(_A["rec"]["ndet"]), _A["style"]["color"],
+                                 f"{_A['label']}: {int(_A['rec']['ndet']):,} detectable"))
+                except Exception:  # noqa: BLE001 -- no record: no line (the caption says why)
+                    pass
+        for _n_ref, _c_ref, _l_ref in _ref:
+            ax[1].axhline(_n_ref, color=_c_ref, ls=(0, (1, 2)), lw=1.1, label=_l_ref)
+        _ytop = max([r[0] for r in _ref]
+                    + [int(np.size(ARMS[_t]["mm"])) for _t in ARMS])
+        ax[1].set_yscale("log"); ax[1].set_ylim(1, 1.6 * max(_ytop, 1))
+        ax[1].set_xlim(0, 1)
+        ax[1].legend(fontsize=8, loc="lower left")
         ax[1].set_xlabel("phase-maximised overlap with the matched injection")
         ax[1].set_ylabel("sources at or above")
         if ADDED and _add.overlay_overlap(ax[0], ax[1], ADDED, survival=_survival):

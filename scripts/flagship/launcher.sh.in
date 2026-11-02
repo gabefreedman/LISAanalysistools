@@ -396,9 +396,12 @@ export GF_MONITOR_TIMEOUT=1800
 # the noise + foreground posteriors and curves. A missing dir / store / truth
 # set costs only its overlay (a caption note + a MISSING line). The monitor rank
 # inherits it; the CLI twin is python -m lisatools.globalfit.monitor --add-info.
-# The default is THIS RUN'S PARENT (runs.py); GF_MONITOR_ADD_INFO=none on the
-# launch line drops it. Not a run knob: the sampler never reads it.
-export GF_MONITOR_ADD_INFO=${GF_MONITOR_ADD_INFO:-{{OUTPUT_ROOT}}/{{PARENT_STORE_DIRNAME}}}
+# The default is EVERY EARLIER RUN, nearest first (runs.py Run.lineage; user
+# request 2026-11-01: "all previous runs are overlaid (so 6, 9, and 12 for 18.
+# and 6, 9, 12, and 18 for 24)"). GF_MONITOR_ADD_INFO=none on the launch line
+# drops them; an exported value in the submitting shell WINS over this default
+# (unset it before a resubmit). Not a run knob: the sampler never reads it.
+export GF_MONITOR_ADD_INFO=${GF_MONITOR_ADD_INFO:-{{MONITOR_ADD_INFO}}}
 {{#else}}
 # NO PARENT: no previous run to overlay on the monitor page (GF_MONITOR_ADD_INFO
 # is not exported; the first run of the chain is its own reference).

@@ -93,6 +93,13 @@ class Parent:
     mbhb_ids: str             # the PARENT's MBHB_IDS (its cold chain carries those)
     emri_ids: str = EMRI_IDS
     sobhb_ids: str = SOBHB_IDS
+    #: The RUNS entry this parent is a COPY of (the 12mo's gf_prod_9mo_v9_copy
+    #: is a copy of RUNS["9mo"]). The warm starts read ``store_dirname`` (the
+    #: copy); the monitor overlay and :meth:`Run.lineage` follow the run it was
+    #: copied from (its live directory, then that run's own parents). ``None``:
+    #: a store outside the table (the 9mo's gf_prod_6mo_v9_4gpu), where the
+    #: lineage ends.
+    copy_of: typing.Optional[str] = None
 
     @property
     def tobs(self) -> int:
@@ -182,6 +189,38 @@ class Run:
             return self.parent
         return RUNS[self.parent].as_parent()
 
+    def lineage(self) -> typing.List[str]:
+        """Every earlier run's directory name (under OUTPUT_ROOT), nearest first:
+        what the monitor page overlays (``GF_MONITOR_ADD_INFO``).
+
+        User request 2026-11-01: "when I start other runs like the 18 or 24
+        month run I would like it so all previous runs are overlaid (so 6, 9,
+        and 12 for 18. and 6, 9, 12, and 18 for 24)". Walks ``parent``: a run
+        name continues at that run (its own store directory, then ITS parent);
+        a :class:`Parent` with ``copy_of`` continues at the run it was copied
+        from (the live directory, not the copy: user ruling 2026-11-01 for the
+        12mo's 9mo overlay); any other :class:`Parent` adds its directory and
+        ends the walk (a store outside the table has no parent recorded here).
+
+            12mo -> gf_prod_9mo_v9, gf_prod_6mo_v9_4gpu
+            18mo -> gf_prod_12mo_flagship, gf_prod_9mo_v9, gf_prod_6mo_v9_4gpu
+        """
+        out: typing.List[str] = []
+        seen = {self.name}
+        p = self.parent
+        while p is not None:
+            if isinstance(p, Parent) and p.copy_of is None:
+                out.append(p.store_dirname)
+                break
+            name = p.copy_of if isinstance(p, Parent) else p
+            if name in seen:
+                raise ValueError(f"{self.name}: parent cycle at {name!r}")
+            seen.add(name)
+            r = RUNS[name]
+            out.append(r.store_dir.rstrip("/").rsplit("/", 1)[-1])
+            p = r.parent
+        return out
+
     def check(self) -> None:
         need = sighet_guard_min_crop(self.nt)
         if self.edge_crop_wavelets < need:
@@ -195,6 +234,10 @@ class Run:
         if self.parent is not None and not isinstance(self.parent, Parent) \
                 and self.parent not in RUNS:
             raise ValueError(f"{self.name}: unknown parent run {self.parent!r}")
+        if isinstance(self.parent, Parent) and self.parent.copy_of is not None \
+                and self.parent.copy_of not in RUNS:
+            raise ValueError(f"{self.name}: parent copy_of {self.parent.copy_of!r} "
+                             "is not a run in the table")
 
 
 # ---- THE TABLE ----------------------------------------------------------------
@@ -271,20 +314,27 @@ _add(Run(
     name="12mo", days=360,
     # The parent is a COPY of the 9mo run folder (Mike 2026-10-13: "i will copy
     # the 9mo to *_copy folder and we should run off that so we do not mess
-    # that up"): every read -- the GB warm-start fit, the psd pin, the source
-    # warm start, the monitor overlay -- goes to gf_prod_9mo_v9_copy, never to
-    # the live gf_prod_9mo_v9 store the 9mo job keeps writing. The copy must
+    # that up"): every warm-start read -- the GB warm-start fit, the psd pin,
+    # the source warm start -- goes to gf_prod_9mo_v9_copy, never to the live
+    # gf_prod_9mo_v9 store the 9mo job keeps writing. THE MONITOR OVERLAY is
+    # the exception (user ruling 2026-11-01): it reads the LIVE gf_prod_9mo_v9
+    # (copy_of="9mo"; the copy was not found on the cluster), read-only, in a
+    # short `with` block, with file locking off in both jobs and the torn-read
+    # fallback to the 9mo's backup copy, so it cannot block that run's saves.
+    # The copy must
     # hold the 9mo's primary h5 (gf_prod_9mo_testing.h5; the running backup
     # copy beside it is the torn-primary fallback). Rename here if the copy
     # is called something else; the id lists are the 9mo's own.
     parent=Parent(name="9mo", store_dirname="gf_prod_9mo_v9_copy",
                   base_file_name="gf_prod_9mo", days=270,
-                  mbhb_ids=mbhb_ids_for(270)),
+                  mbhb_ids=mbhb_ids_for(270), copy_of="9mo"),
     gb_nleaves_max=20000, gb_n_subbands=4096, gb_rj_inmodel_chunk=16384,
     edge_crop_wavelets=60,
     notes=(
         "PARENT = gf_prod_9mo_v9_copy, a COPY of the live 9mo run folder taken",
-        "before this launch (Mike 2026-10-13) -- the live store is never read.",
+        "before this launch (Mike 2026-10-13) -- the warm starts never read the",
+        "live store. The monitor page overlays the LIVE 9mo and its 6mo parent",
+        "(Run.lineage; user ruling 2026-11-01).",
         "GB_WARM_START_LAST_K = the parent's last STORED ROWS (x 4 walkers; a",
         "search stage stores 3 rows per cycle under GB_SEARCH_LEGS=1); set it on",
         "the launch line or as an override here once decided.",
