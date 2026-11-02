@@ -284,7 +284,10 @@ if [ -z "${SLURM_JOB_ID:-}" ]; then
 fi
 
 # ---- environment (fill in your activation) ---------------------------------
-# module load FILLME_cuda_module
+module load mpi/impi_2021.16
+export CUDA_HOME=/usr/local/cuda
+export PATH="$CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
 source /shared/home/gfreedm1/projects/cd1l/.venv/bin/activate
 cd /shared/home/gfreedm1/projects/cd1l/lisa-analysis-tools
 
