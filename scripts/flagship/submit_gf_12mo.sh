@@ -285,8 +285,8 @@ fi
 
 # ---- environment (fill in your activation) ---------------------------------
 # module load FILLME_cuda_module
-source /shared/home/mlkatz1/envs/gf_env/bin/activate
-cd /shared/home/mlkatz1/lisa-analysis-tools
+source /shared/home/gfreedm1/projects/cd1l/.venv/bin/activate
+cd /shared/home/gfreedm1/projects/cd1l/lisa-analysis-tools
 
 # FRESH RUN (2026-08-15, user ruling: "we want to totally restart. This is a
 # fresh run now."). A NEW store dir so the previous run's h5/logs/fstat cache
