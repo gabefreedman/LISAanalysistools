@@ -530,9 +530,12 @@ class ParentChainTest(unittest.TestCase):
                 self.assertEqual(e["GB_REPLACE_WARM_PASS"], "1")
                 self.assertEqual(e["SOURCE_SEARCH_POSITION"], "after_seed")
                 self.assertEqual(e["STAGE_SKIP_SOURCE_SEARCH"], "0")
-                # the parent run overlaid on this run's monitor page (2026-10-12)
+                # every earlier run overlaid on this run's monitor page, nearest
+                # first (2026-10-12 the parent; 2026-11-01 the whole lineage)
                 self.assertEqual(e["GF_MONITOR_ADD_INFO"],
-                                 f"/shared/data/global_fit_output/{p.store_dirname}")
+                                 ":".join(f"/shared/data/global_fit_output/{d}"
+                                          for d in run.lineage()))
+                self.assertTrue(run.lineage(), name)
                 self.assertNotIn("PSD_START_PARAMS", e)           # the pin comes from the store
                 self.assertNotIn("STAGE_FORCE_NOISE_SEARCH", e)
                 self.assertNotIn("GB_SEARCH_1_NOISE_MODE", e)
@@ -554,10 +557,48 @@ class ParentChainTest(unittest.TestCase):
         # the 12mo reads a COPY of the 9mo folder, never the live store (Mike 2026-10-13)
         self.assertEqual(self.ex["12mo"]["GF_SEED_STORE"],
                          "/shared/data/global_fit_output/gf_prod_9mo_v9_copy/gf_prod_9mo_testing.h5")
-        self.assertEqual(self.ex["12mo"]["GF_MONITOR_ADD_INFO"],
-                         "/shared/data/global_fit_output/gf_prod_9mo_v9_copy")
         self.assertEqual(self.ex["12mo"]["MBH_SOURCE_WARM_START_IDS"], self.ex["9mo"]["MBHB_IDS"])
-        self.assertNotIn("gf_prod_9mo_v9/", _text("12mo").split("set -euo pipefail")[1])
+        # ... every WARM-START read stays on the copy; only the monitor overlay
+        # reads the live 9mo (user ruling 2026-11-01; read-only, locking off)
+        body = _text("12mo").split("set -euo pipefail")[1]
+        reads = [l for l in body.split("\n") if "GF_MONITOR_ADD_INFO" not in l]
+        self.assertNotIn("gf_prod_9mo_v9/", "\n".join(reads))
+        self.assertNotIn("gf_prod_9mo_v9:", "\n".join(reads))
+
+    def test_the_monitor_overlays_every_earlier_run_nearest_first(self):
+        root = "/shared/data/global_fit_output/"
+        want = {
+            "6mo": ["gf_prod_3mo_flagship"],
+            "9mo": ["gf_prod_6mo_v9_4gpu"],
+            "12mo": ["gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
+            "18mo": ["gf_prod_12mo_flagship", "gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
+            "24mo": ["gf_prod_18mo_flagship", "gf_prod_12mo_flagship", "gf_prod_9mo_v9",
+                     "gf_prod_6mo_v9_4gpu"],
+        }
+        for name, dirs in want.items():
+            with self.subTest(run=name):
+                self.assertEqual(fr.RUNS[name].lineage(), dirs)
+                self.assertEqual(self.ex[name]["GF_MONITOR_ADD_INFO"],
+                                 ":".join(root + d for d in dirs))
+        self.assertEqual(fr.RUNS["3mo"].lineage(), [])
+
+    def test_the_lineage_refuses_a_cycle_and_an_unknown_copy(self):
+        a = fr.Run(name="_a", days=90, parent="_b", gb_nleaves_max=1, gb_n_subbands=1,
+                   gb_rj_inmodel_chunk=1, edge_crop_wavelets=20)
+        b = fr.Run(name="_b", days=90, parent="_a", gb_nleaves_max=1, gb_n_subbands=1,
+                   gb_rj_inmodel_chunk=1, edge_crop_wavelets=20)
+        fr.RUNS["_a"], fr.RUNS["_b"] = a, b
+        try:
+            with self.assertRaises(ValueError):
+                a.lineage()
+        finally:
+            del fr.RUNS["_a"], fr.RUNS["_b"]
+        bad = fr.Run(name="_c", days=90, edge_crop_wavelets=20, gb_nleaves_max=1,
+                     gb_n_subbands=1, gb_rj_inmodel_chunk=1,
+                     parent=fr.Parent(name="x", store_dirname="x", base_file_name="x",
+                                      days=90, mbhb_ids="2", copy_of="nope"))
+        with self.assertRaises(ValueError):
+            bad.check()
 
 
 # ---------------------------------------------------------------------------

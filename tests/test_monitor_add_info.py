@@ -567,11 +567,49 @@ class RenderedOverlayTest(unittest.TestCase):
         self.assertEqual(len(set(cols)), 3)
         self.assertEqual(len(set(styles)), 3)
         # the survival twin: the same two runs, same colour and style (plus the
-        # base curve and its detectable-count reference line)
-        surv = [(to_hex(l.get_color()), l.get_linestyle()) for l in ax1.get_lines()]
+        # base curve), and one labelled detectable-count reference line per run
+        # in that run's colour, at its own truth-set count
+        curves = [l for l in ax1.get_lines() if l.get_label().startswith("_")]
+        refs = [l for l in ax1.get_lines() if not l.get_label().startswith("_")]
+        surv = [(to_hex(l.get_color()), l.get_linestyle()) for l in curves]
         for s in (add.style(0), add.style(1)):
             self.assertEqual(surv.count((s["color"].lower(), s["ls"])), 1)
-        self.assertEqual(len(surv), 4)
+        self.assertEqual(len(curves), 3)
+        self.assertEqual(legend_labels(ax1), [f"{BASE}: 80 detectable injections",
+                                              "6mo: 60 detectable", "3mo_v9: 60 detectable"])
+        self.assertEqual([to_hex(l.get_color()) for l in refs],
+                         ["#ff7bac"] + [s["color"].lower() for s in (add.style(0), add.style(1))])
+        self.assertEqual([float(l.get_ydata()[0]) for l in refs], [80.0, 60.0, 60.0])
+
+    def test_the_survival_axis_fits_every_runs_detectable_line(self):
+        # The production counts the old fixed ylim(1, 2500) cut off: the 12mo
+        # page (3,608 detectable) overlaying the 9mo (2,963) and the 6mo (2,495).
+        added = [synth_added(0, "9mo_v9", ndet=2963), synth_added(1, "6mo", ndet=2495)]
+        ns, figs = recovery_ns(added, ndet=3608)
+        run_block(F3, ns)
+        ax1 = figs["f3_match"].axes[1]
+        lo, hi = ax1.get_ylim()
+        self.assertEqual(lo, 1)
+        self.assertGreater(hi, 2500)
+        for l in ax1.get_lines():
+            self.assertLess(float(np.max(l.get_ydata())), hi / 1.5, l.get_label())
+        self.assertEqual(legend_labels(ax1), [f"{BASE}: 3,608 detectable injections",
+                                              "9mo_v9: 2,963 detectable",
+                                              "6mo: 2,495 detectable"])
+        # the CDF panel carries no reference-line text any more
+        self.assertEqual(list(figs["f3_match"].axes[0].texts), [])
+
+    def test_the_survival_axis_follows_the_base_alone(self):
+        ns, figs = recovery_ns([], ndet=3608)
+        run_block(F3, ns)
+        ax1 = figs["f3_match"].axes[1]
+        self.assertAlmostEqual(ax1.get_ylim()[1], 1.6 * 3608)
+        self.assertEqual(legend_labels(ax1), [f"{BASE}: 3,608 detectable injections"])
+        # a record-less added run draws no reference line and does not move the axis
+        ns, figs = recovery_ns([synth_added(0, "6mo", rec=False)], ndet=3608)
+        run_block(F3, ns)
+        self.assertAlmostEqual(figs["f3_match"].axes[1].get_ylim()[1], 1.6 * 3608)
+        self.assertEqual(len(legend_labels(figs["f3_match"].axes[1])), 1)
 
     def test_the_snr_and_frequency_figures_get_one_entry_per_run(self):
         ns, figs = recovery_ns(ADDED_TWO)
