@@ -24,7 +24,7 @@
 #     on the first launch when missing; the psd pinned at its maxlogL cold walker (galfor stays the
 #     hand-set offline estimate, ruling 2026-09-25); the source
 #     warm start copies its SNR > 10 leaves by catalogue id: MBHB 0,2,3,4,5,6,7,9,10,12,13,15,16,18,19, every EMRI / SOBHB; the monitor page overlays
-#     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_18mo_flagship:/shared/data/global_fit_output/gf_prod_12mo_flagship:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
+#     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_18mo_flagship:/shared/data/global_fit_output/gf_prod_12mo_v1.2.8dev:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
 #
 # NOTES:
@@ -445,7 +445,7 @@ export GF_MONITOR_TIMEOUT=1800
 # and 6, 9, 12, and 18 for 24)"). GF_MONITOR_ADD_INFO=none on the launch line
 # drops them; an exported value in the submitting shell WINS over this default
 # (unset it before a resubmit). Not a run knob: the sampler never reads it.
-export GF_MONITOR_ADD_INFO=${GF_MONITOR_ADD_INFO:-/shared/data/global_fit_output/gf_prod_18mo_flagship:/shared/data/global_fit_output/gf_prod_12mo_flagship:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu}
+export GF_MONITOR_ADD_INFO=${GF_MONITOR_ADD_INFO:-/shared/data/global_fit_output/gf_prod_18mo_flagship:/shared/data/global_fit_output/gf_prod_12mo_v1.2.8dev:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu}
 
 export USE_GPU=1
 export GPU_BACKEND=cuda13x

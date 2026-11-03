@@ -452,8 +452,11 @@ class PerRunValuesTest(unittest.TestCase):
                 self.assertTrue(run.store_dir.endswith("/"))
                 stores.add(run.store_dir)
                 jobs.add(run.resolved_job_name)
-                if name != "9mo":
+                # a run that names its own store (the 9mo's live names, the
+                # 12mo v1.2.8dev restart) is exempt from the series default
+                if name != "9mo" and run.store_dirname is None:
                     self.assertIn(f"gf_prod_{name}_{fr.SERIES}/", run.store_dir)
+                if name != "9mo":
                     self.assertNotIn("_v9", t.split("set -euo pipefail")[1].split("# ----")[0])
         self.assertEqual(len(stores), len(ORDER), "two runs share a store")
         self.assertEqual(len(jobs), len(ORDER), "two runs share a job name")
@@ -461,7 +464,10 @@ class PerRunValuesTest(unittest.TestCase):
         self.assertEqual(fr.RUNS["9mo"].store_dir, "/shared/data/global_fit_output/gf_prod_9mo_v9/")
         for name in ORDER:
             if name != "9mo":
-                for live in ("gf_prod_9mo_v9/", "gf_prod_6mo_v9_4gpu/", "gf_prod_3mo_v9"):
+                # gf_prod_12mo_flagship: the first 12mo run, killed 2026-11-02 and
+                # kept for comparison (the v1.2.8dev restart has its own store)
+                for live in ("gf_prod_9mo_v9/", "gf_prod_6mo_v9_4gpu/", "gf_prod_3mo_v9",
+                             "gf_prod_12mo_flagship/"):
                     self.assertNotIn(live, fr.RUNS[name].store_dir)
 
     def test_ngpus_defaults_to_four_everywhere(self):
@@ -571,8 +577,8 @@ class ParentChainTest(unittest.TestCase):
             "6mo": ["gf_prod_3mo_flagship"],
             "9mo": ["gf_prod_6mo_v9_4gpu"],
             "12mo": ["gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
-            "18mo": ["gf_prod_12mo_flagship", "gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
-            "24mo": ["gf_prod_18mo_flagship", "gf_prod_12mo_flagship", "gf_prod_9mo_v9",
+            "18mo": ["gf_prod_12mo_v1.2.8dev", "gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
+            "24mo": ["gf_prod_18mo_flagship", "gf_prod_12mo_v1.2.8dev", "gf_prod_9mo_v9",
                      "gf_prod_6mo_v9_4gpu"],
         }
         for name, dirs in want.items():
@@ -823,6 +829,7 @@ class LevelsTest(unittest.TestCase):
         import dataclasses
         base = fr.RUNS["12mo"]
         trial = dataclasses.replace(base, name="12mo_trial",
+                                    store_dirname=None, job_name=None,
                                     overrides={"NWALKERS": "8", "GB_NTEMPS": "12"},
                                     extra_exports=("export FLAGSHIP_TRIAL_KNOB=1",))
         fr.RUNS["12mo_trial"] = trial

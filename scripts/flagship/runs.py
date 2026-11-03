@@ -203,7 +203,7 @@ class Run:
         ends the walk (a store outside the table has no parent recorded here).
 
             12mo -> gf_prod_9mo_v9, gf_prod_6mo_v9_4gpu
-            18mo -> gf_prod_12mo_flagship, gf_prod_9mo_v9, gf_prod_6mo_v9_4gpu
+            18mo -> gf_prod_12mo_v1.2.8dev, gf_prod_9mo_v9, gf_prod_6mo_v9_4gpu
         """
         out: typing.List[str] = []
         seen = {self.name}
@@ -330,7 +330,26 @@ _add(Run(
                   mbhb_ids=mbhb_ids_for(270), copy_of="9mo"),
     gb_nleaves_max=20000, gb_n_subbands=4096, gb_rj_inmodel_chunk=16384,
     edge_crop_wavelets=60,
+    # RESTART v1.2.8dev (2026-11-02): a fresh store in a NEW dir, so the first
+    # 12mo run (gf_prod_12mo_flagship, job gf12mo_flagship) and its logs stay
+    # untouched. The GB band floor is lowered because the first run's monitor
+    # FD residual panels showed detectable binaries below it.
+    store_dirname="gf_prod_12mo_v1.2.8dev", job_name="gf12mo_v1.2.8dev",
+    # GB_MIN_FREQ 5.5e-4 -> 2.5e-4. The uniform grid snaps the floor UP to a
+    # whole WDM layer (layer_df 0.13889 mHz) and clamps it to the WDM floor
+    # (MIN_FREQ 2.5e-4 -> layer 2 = 0.27778 mHz):
+    #   5.5e-4 -> band_edges[0] 0.55556 mHz, f0 prior from 0.57292, 1232 bands
+    #   3e-4   -> band_edges[0] 0.41667 mHz (NOT ~0.3 mHz)
+    #   2.5e-4 -> band_edges[0] 0.27778 mHz, f0 prior from 0.29514, 1248 bands
+    # (f0_lims = band_edges[1], one layer_df/8 = 17.36 uHz sub-band in). The GB
+    # band now overlaps the four lowest VGBs (0.31-0.34 mHz). NOT
+    # resume-compatible with a store built on the old grid.
+    overrides={"GB_MIN_FREQ": "2.5e-4"},
     notes=(
+        "RESTART v1.2.8dev (2026-11-02): fresh store gf_prod_12mo_v1.2.8dev with",
+        "GB_MIN_FREQ 5.5e-4 -> 2.5e-4 (GB band floor 0.5556 -> 0.2778 mHz, f0 prior",
+        "from 0.2951 mHz, 1248 sub-bands); the first 12mo run stays in",
+        "gf_prod_12mo_flagship. See RUNS['12mo'] in runs.py for the edge table.",
         "PARENT = gf_prod_9mo_v9_copy, a COPY of the live 9mo run folder taken",
         "before this launch (Mike 2026-10-13) -- the warm starts never read the",
         "live store. The monitor page overlays the LIVE 9mo and its 6mo parent",
