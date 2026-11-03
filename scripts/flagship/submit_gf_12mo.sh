@@ -789,12 +789,28 @@ export SIGHET_NT_LAYER=240
 # comfortably inside (2.7778e-4 is the exact boundary and can tip to layer 3 on
 # floating-point rounding -- do not use it).
 #
-# RESUME-SAFE: band_edges/cap_edges are stored in absolute Hz and start at
-# layer 4 (5.5556e-4), entirely above the new floor, so they recompute
-# bit-identically and the leaf-cap guard passes.
+# (The MIN_FREQ change above was resume-safe because the GB edges then started
+# at layer 4 = 5.5556e-4, above the floor. The GB_MIN_FREQ change below is NOT.)
+#
+# ⚠ GB_MIN_FREQ 5.5e-4 -> 2.5e-4 (2026-11-02, team request). The 12mo monitor's
+# FD residual panels showed detectable binaries below the old GB floor. The
+# uniform grid snaps the floor UP to a whole layer
+# (k_lo = ceil(GB_MIN_FREQ / layer_df), layer_df = 0.13889 mHz) and clamps it
+# to the WDM floor (layer 2 = 0.27778 mHz), so:
+#   5.5e-4 -> band_edges[0] 0.55556 mHz, f0 prior from 0.57292 mHz (old, 1232 bands)
+#   3e-4   -> band_edges[0] 0.41667 mHz  (NOT ~0.3 -- do not use for that)
+#   2.5e-4 -> band_edges[0] 0.27778 mHz, f0 prior from 0.29514 mHz (this, 1248 bands)
+# f0_lims = [band_edges[1], band_edges[-2]], so the prior starts one
+# sub-band (layer_df/8 = 17.36 uHz) above the edge. The change adds 16 sub-bands
+# below the old grid (the old edges are an exact tail of the new grid);
+# check that the log shows "GB f0 prior range is set from 0.0002951...".
+# The GB band now overlaps the four lowest VGBs (0.31-0.34 mHz).
+# NOT RESUME-COMPATIBLE: a resume across this change hits the run.py band-grid
+# guard. Either start a fresh store or run migrate_gb_band_edges.py --branch gb
+# with the edges the guard writes out.
 export MIN_FREQ=2.5e-4
 export MAX_FREQ=2.5e-2
-export GB_MIN_FREQ=5.5e-4
+export GB_MIN_FREQ=2.5e-4
 export GB_MAX_FREQ=2.2e-2
 
 # ---- GB knobs (everything else rides the flipped defaults: sig-het in-model,
