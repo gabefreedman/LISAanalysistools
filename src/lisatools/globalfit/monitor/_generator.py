@@ -534,6 +534,21 @@ from lisatools.globalfit.monitor._png import shrink_png as _shrink_png  # noqa: 
 _base = os.path.basename(os.path.normpath(RUN_DIR))
 RUN_LABEL, RUN_KIND = _run_identity(_base)
 
+# ---- PAGE TITLE / VERSION (user request 2026-11-02) ------------------------
+# "the title is just 'CD1-L 12 month analysis' and the version is listed
+# somewhere but not front and center". GF_MONITOR_TITLE replaces the <h1> and
+# the browser-tab title; GF_MONITOR_VERSION goes on the small grey stamp line
+# under it, next to the store dir. Both unset -> the page is unchanged.
+import html as _html_mod  # noqa: E402  (``html`` is the page string below)
+_MON_TITLE = os.environ.get("GF_MONITOR_TITLE", "").strip()
+_MON_VERSION = os.environ.get("GF_MONITOR_VERSION", "").strip()
+PAGE_TAB_TITLE = (_html_mod.escape(_MON_TITLE) if _MON_TITLE
+                  else f"LISA Global Fit {RUN_LABEL}")
+PAGE_H1 = (_html_mod.escape(_MON_TITLE) if _MON_TITLE
+           else f"LISA Global Fit &middot; {RUN_LABEL} Status")
+PAGE_VERSION_STAMP = (f"version {_html_mod.escape(_MON_VERSION)} &middot; "
+                      if _MON_VERSION else "")
+
 # ---- ADDED RUNS (user request 2026-10-12) ---------------------------------
 # "add a second run to the same html only in specific places where it is
 # reasonable visually to compare between runs, so the base of everything stays
@@ -9467,7 +9482,7 @@ per-band cold log-likelihood change.</div></div>
 </details>
 """
 
-html = f"""<title>LISA Global Fit {RUN_LABEL}</title>
+html = f"""<title>{PAGE_TAB_TITLE}</title>
 <style>
 :root {{
   --bg:#0A0E14; --panel:#10161F; --line:#223041; --fg:#B8C6D4; --dim:#67788A;
@@ -9570,8 +9585,8 @@ nav button {{ font-size:11px; padding:1px 8px; }}
 {GLANCE_CSS}
 </style>
 <header>
-  <h1>LISA Global Fit &middot; {RUN_LABEL} Status</h1>
-  <span class="stamp">{os.path.basename(RUN_DIR)} &middot; {datetime.now():%Y-%m-%d}</span>
+  <h1>{PAGE_H1}</h1>
+  <span class="stamp">{PAGE_VERSION_STAMP}{os.path.basename(RUN_DIR)} &middot; {datetime.now():%Y-%m-%d}</span>
   <span>{chips}</span>
 </header>
 <nav>

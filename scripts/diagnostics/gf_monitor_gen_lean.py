@@ -296,6 +296,21 @@ from lisatools.globalfit.monitor._identity import (  # noqa: E402
 _base = os.path.basename(os.path.normpath(RUN_DIR))
 RUN_LABEL, RUN_KIND = _run_identity(_base)
 
+# ---- PAGE TITLE / VERSION (user request 2026-11-02) ------------------------
+# "the title is just 'CD1-L 12 month analysis' and the version is listed
+# somewhere but not front and center". GF_MONITOR_TITLE replaces the <h1> and
+# the browser-tab title; GF_MONITOR_VERSION goes on the small grey stamp line
+# under it, next to the store dir. Both unset -> the page is unchanged.
+import html as _html_mod  # noqa: E402  (``html`` is the page string below)
+_MON_TITLE = os.environ.get("GF_MONITOR_TITLE", "").strip()
+_MON_VERSION = os.environ.get("GF_MONITOR_VERSION", "").strip()
+PAGE_TAB_TITLE = (_html_mod.escape(_MON_TITLE) if _MON_TITLE
+                  else f"LISA Global Fit {RUN_LABEL}")
+PAGE_H1 = (_html_mod.escape(_MON_TITLE) if _MON_TITLE
+           else f"LISA Global Fit &middot; {RUN_LABEL} Status")
+PAGE_VERSION_STAMP = (f"version {_html_mod.escape(_MON_VERSION)} &middot; "
+                      if _MON_VERSION else "")
+
 # ---- persistent commentary sidecar (2026-08-27) --------------------------
 # Hand-written notes must survive page regeneration (the page is rebuilt
 # from scratch every snapshot): drop HTML into commentary_{RUN_KIND}.html
@@ -3848,7 +3863,7 @@ else:
         "truths appear in the visual overlays only. The run has not "
         "converged.")
 
-html = f"""<title>LISA Global Fit {RUN_LABEL}</title>
+html = f"""<title>{PAGE_TAB_TITLE}</title>
 <style>
 :root {{
   --bg:#0A0E14; --panel:#10161F; --line:#223041; --fg:#B8C6D4; --dim:#67788A;
@@ -3911,8 +3926,8 @@ button.armed.truth {{ border-color:var(--dim); color:var(--dim); }}
 ul {{ color:var(--dim); font-size:13px; }}
 </style>
 <header>
-  <h1>LISA Global Fit &middot; {RUN_LABEL} Status</h1>
-  <span class="stamp">{os.path.basename(RUN_DIR)} &middot; {datetime.now():%Y-%m-%d}</span>
+  <h1>{PAGE_H1}</h1>
+  <span class="stamp">{PAGE_VERSION_STAMP}{os.path.basename(RUN_DIR)} &middot; {datetime.now():%Y-%m-%d}</span>
   <span>{chips}</span>
 </header>
 <nav>

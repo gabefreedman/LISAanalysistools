@@ -345,6 +345,12 @@ _add(Run(
     # band now overlaps the four lowest VGBs (0.31-0.34 mHz). NOT
     # resume-compatible with a store built on the old grid.
     overrides={"GB_MIN_FREQ": "2.5e-4"},
+    # monitor page (user request 2026-11-02): plain title, version on the
+    # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
+    extra_exports=(
+        'export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 12 month analysis}"',
+        'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-v1.2.8dev}"',
+    ),
     notes=(
         "RESTART v1.2.8dev (2026-11-02): fresh store gf_prod_12mo_v1.2.8dev with",
         "GB_MIN_FREQ 5.5e-4 -> 2.5e-4 (GB band floor 0.5556 -> 0.2778 mHz, f0 prior",
@@ -366,6 +372,16 @@ _add(Run(
     name="18mo", days=540, parent="12mo",
     gb_nleaves_max=25000, gb_n_subbands=2048, gb_rj_inmodel_chunk=8192,
     edge_crop_wavelets=90,
+    # GB_MIN_FREQ 5.5e-4 -> 2.5e-4, as in the 12mo v1.2.8dev restart (user
+    # request 2026-11-02: keep the lower f0 prior; same Nf/dt so the same
+    # edges: band_edges[0] 0.27778 mHz, f0 prior from 0.29514 mHz).
+    overrides={"GB_MIN_FREQ": "2.5e-4"},
+    # monitor page (user request 2026-11-02): plain title, version on the
+    # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
+    extra_exports=(
+        'export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 18 month analysis}"',
+        'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"',
+    ),
     notes=(
         "First run past the 1yr: capacity knobs = the 24mo's (as the 9mo took the",
         "1yr's); EDGE_CROP 90 (guard needs 73). MBHB 17 merges at 585.5 d, 31.5 d",
@@ -379,6 +395,16 @@ _add(Run(
     name="24mo", days=720, parent="18mo",
     gb_nleaves_max=25000, gb_n_subbands=2048, gb_rj_inmodel_chunk=8192,
     edge_crop_wavelets=120,
+    # GB_MIN_FREQ 5.5e-4 -> 2.5e-4, as in the 12mo v1.2.8dev restart (user
+    # request 2026-11-02: keep the lower f0 prior; same Nf/dt so the same
+    # edges: band_edges[0] 0.27778 mHz, f0 prior from 0.29514 mHz).
+    overrides={"GB_MIN_FREQ": "2.5e-4"},
+    # monitor page (user request 2026-11-02): plain title, version on the
+    # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
+    extra_exports=(
+        'export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"',
+        'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"',
+    ),
     notes=(
         "All 20 catalogue MBHBs merge inside 720 d (the last, 14, at 712.7 d).",
         "EDGE_CROP 120 (guard needs 95). Same unverified-at-this-Tobs list as the",

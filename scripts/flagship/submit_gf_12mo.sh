@@ -27,6 +27,7 @@
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
 #   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4
+#   EXTRA EXPORTS (level 2): 2 line(s) at the hook.
 #
 # NOTES:
 #   RESTART v1.2.8dev (2026-11-02): fresh store gf_prod_12mo_v1.2.8dev with
@@ -5727,7 +5728,8 @@ PYEOF
 # New knobs that exist for ONE run only land here, after every shared export
 # and the waveform preflights; a knob the base already exports is changed in
 # place through Run.overrides instead (build.py rewrites that export line).
-# (none for this run)
+export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 12 month analysis}"
+export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-v1.2.8dev}"
 
 # ============================================================================
 # FRESH-RUN GUARD (2026-08-15). This submission starts a NEW run in a NEW

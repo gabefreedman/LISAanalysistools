@@ -33,7 +33,10 @@ __all__ = ["run_identity", "arm_tag"]
 
 #: ``<N>mo_v<K>`` / ``<N>yr_v<K>`` anywhere in the name (``(?<![0-9])`` keeps
 #: ``gf_prod_23mo_v1`` from matching as ``3mo``).
-_VARIANT = re.compile(r"(?<![0-9])(\d+)(mo|yr)_v(\d+)")
+#: 2026-11-02: the version may be dotted with an optional ``dev`` suffix
+#: (``gf_prod_12mo_v1.2.8dev`` -> ``v1.2.8dev``, not ``v1``); a plain ``v9``
+#: matches exactly as before, so no existing arm-cache tag moves.
+_VARIANT = re.compile(r"(?<![0-9])(\d+)(mo|yr)_v(\d+(?:\.\d+)*(?:dev\d*)?)")
 
 #: The flagship series (2026-10-11, scripts/flagship): ``gf_prod_<N>mo_<tag>``
 #: with a series tag from ``_SERIES_TAGS`` -> ``("<N>-Month <tag>",

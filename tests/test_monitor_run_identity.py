@@ -51,6 +51,9 @@ class RunIdentityTest(unittest.TestCase):
         ("gf_prod_1yr_v9", "1-Year v9", "1yr_v9"),
         ("gf_prod_9mo_v10_4gpu", "9-Month v10", "9mo_v10"),
         ("gf_prod_2yr_v9", "2-Year v9", "2yr_v9"),
+        # dotted / dev versions (2026-11-02, the 12mo restart): the whole token
+        ("gf_prod_12mo_v1.2.8dev", "12-Month v1.2.8dev", "12mo_v1.2.8dev"),
+        ("gf_prod_18mo_v1.3", "18-Month v1.3", "18mo_v1.3"),
     )
 
     # the flagship series (scripts/flagship, 2026-10-11): its own tag per run

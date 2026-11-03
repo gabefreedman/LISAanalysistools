@@ -722,6 +722,13 @@ class EveryOtherKnobIsTheNineMonthsTest(unittest.TestCase):
             # a level-2 override is declared by definition, on either side (the
             # 9mo keeps the chunked GB likelihood, Mike 2026-10-24)
             allowed |= set(fr.RUNS[name].overrides) | set(fr.RUNS["9mo"].overrides)
+            # ... and so is a level-2 extra_exports line (e.g. the 12/18/24mo
+            # GF_MONITOR_TITLE / GF_MONITOR_VERSION, 2026-11-02)
+            for _r in (fr.RUNS[name], fr.RUNS["9mo"]):
+                for _line in _r.extra_exports:
+                    _m = re.match(r"^export ([A-Z0-9_]+)=", _line)
+                    if _m:
+                        allowed.add(_m.group(1))
             if fr.RUNS[name].parent is None:
                 allowed |= self.NO_PARENT
             with self.subTest(run=name):

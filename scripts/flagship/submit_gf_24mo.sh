@@ -26,6 +26,8 @@
 #     warm start copies its SNR > 10 leaves by catalogue id: MBHB 0,2,3,4,5,6,7,9,10,12,13,15,16,18,19, every EMRI / SOBHB; the monitor page overlays
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_18mo_flagship:/shared/data/global_fit_output/gf_prod_12mo_v1.2.8dev:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
+#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4
+#   EXTRA EXPORTS (level 2): 2 line(s) at the hook.
 #
 # NOTES:
 #   All 20 catalogue MBHBs merge inside 720 d (the last, 14, at 712.7 d).
@@ -788,7 +790,7 @@ export SIGHET_NT_LAYER=480
 # bit-identically and the leaf-cap guard passes.
 export MIN_FREQ=2.5e-4
 export MAX_FREQ=2.5e-2
-export GB_MIN_FREQ=5.5e-4
+export GB_MIN_FREQ=2.5e-4
 export GB_MAX_FREQ=2.2e-2
 
 # ---- GB knobs (everything else rides the flipped defaults: sig-het in-model,
@@ -5716,7 +5718,8 @@ PYEOF
 # New knobs that exist for ONE run only land here, after every shared export
 # and the waveform preflights; a knob the base already exports is changed in
 # place through Run.overrides instead (build.py rewrites that export line).
-# (none for this run)
+export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"
+export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"
 
 # ============================================================================
 # FRESH-RUN GUARD (2026-08-15). This submission starts a NEW run in a NEW
