@@ -17,8 +17,8 @@
 #   SIGHET_NT_LAYER=240 (Tobs / 36 h); EDGE_CROP_WAVELETS=60 (sig-het guard needs >= 52);
 #   GB_NLEAVES_MAX=20000, GB_N_SUBBANDS=4096 per GPU, GB_RJ_INMODEL_CHUNK=16384;
 #   MBHB_IDS=0,2,3,4,5,7,9,10,12,15,16,18 (t_c < 360 + 14 d); EMRI / SOBHB: all;
-#   STORE_DIR /shared/data/global_fit_output/gf_prod_12mo_v1.2.8dev/, BASE_FILE_NAME gf_prod_12mo,
-#   job gf12mo_v1.2.8dev, log gf12mo_v1.2.8dev_<jobid>.log; NGPUS default 4.
+#   STORE_DIR /shared/data/global_fit_output/gf_prod_12mo_flagship/, BASE_FILE_NAME gf_prod_12mo,
+#   job gf12mo_flagship, log gf12mo_flagship_<jobid>.log; NGPUS default 4.
 #   PARENT = the 9mo (270 d): GF_SEED_STORE /shared/data/global_fit_output/gf_prod_9mo_v9_copy/gf_prod_9mo_testing.h5
 #     (GB warm start fitted from its last GB_WARM_START_LAST_K stored rows -> warmstart/gf_prod_9mo_v9_copy_refereed.npz, auto-built
 #     on the first launch when missing; the psd pinned at its maxlogL cold walker (galfor stays the
@@ -26,14 +26,17 @@
 #     warm start copies its SNR > 10 leaves by catalogue id: MBHB 2,5,7,12,16,18, every EMRI / SOBHB; the monitor page overlays
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
-#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4
-#   EXTRA EXPORTS (level 2): 2 line(s) at the hook.
+#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1
+#   EXTRA EXPORTS (level 2): 3 line(s) at the hook.
 #
 # NOTES:
-#   RESTART v1.2.8dev (2026-11-02): fresh store gf_prod_12mo_v1.2.8dev with
-#   GB_MIN_FREQ 5.5e-4 -> 2.5e-4 (GB band floor 0.5556 -> 0.2778 mHz, f0 prior
-#   from 0.2951 mHz, 1248 sub-bands); the first 12mo run stays in
-#   gf_prod_12mo_flagship. See RUNS['12mo'] in runs.py for the edge table.
+#   CONTINUATION (2026-11-03): the first 12mo run (gf_prod_12mo_flagship, in
+#   full_pe) resumed IN PLACE after a whole-folder backup, its GB band grid
+#   extended down by extend_gb_band_floor.py; GB_MIN_FREQ 5.5e-4 -> 2.5e-4
+#   (GB band floor 0.5556 -> 0.2778 mHz, f0 prior from 0.2951 mHz, 1248
+#   sub-bands). STAGE_SKIP_NOISE=1 keeps the recipe the stored one;
+#   GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1 drops the GB-free F-stat move (its grid
+#   fit OOMs on this grid, job 850). Runbook: docs/12mo-continue-lower-gb-floor.md.
 #   PARENT = gf_prod_9mo_v9_copy, a COPY of the live 9mo run folder taken
 #   before this launch (Mike 2026-10-13) -- the warm starts never read the
 #   live store. The monitor page overlays the LIVE 9mo and its 6mo parent
@@ -55,7 +58,7 @@
 # launched 9mo, with the 6mo v9 / v8 headers it inherited) and git log.
 # ============================================================================
 # ---- fill these in ---------------------------------------------------------
-#SBATCH --job-name=gf12mo_v1.2.8dev   # job name (runs.py)
+#SBATCH --job-name=gf12mo_flagship   # job name (runs.py)
 #SBATCH --partition=gpu-80-spot   # DEFAULT partition (2-GPU flow); the
                                   # NGPUS self-dispatch below overrides it
 #SBATCH --gres=gpu:2              # DEFAULT 2 GPUs (GPUS below are LOCAL indices)
@@ -69,7 +72,7 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=0                   # whole-node memory
 #SBATCH --time=24:00:00
-#SBATCH --output=/shared/data/global_fit_output/gf12mo_v1.2.8dev_%j.log     # combined stdout+stderr (captures [MAXLOGL]/[BENCH])
+#SBATCH --output=/shared/data/global_fit_output/gf12mo_flagship_%j.log     # combined stdout+stderr (captures [MAXLOGL]/[BENCH])
 # ----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -304,7 +307,7 @@ cd /shared/home/gfreedm1/projects/cd1l/lisa-analysis-tools
 # unchanged -- they take the DIRECTORY as their argument.
 # env-overridable (2026-09-16) so a COPY of a live run's folder can be continued
 # under new code/layout without touching the original (STORE_DIR=<copy> ...).
-STORE_DIR=${STORE_DIR:-/shared/data/global_fit_output/gf_prod_12mo_v1.2.8dev/}
+STORE_DIR=${STORE_DIR:-/shared/data/global_fit_output/gf_prod_12mo_flagship/}
 
 # ---- GPU telemetry ---------------------------------------------------------
 # Background nvidia-smi sampler: one CSV row per GPU into the run store
@@ -349,7 +352,7 @@ GPU_PROC_PID=$!
 # rather than an EXIT trap it survives a spot preemption (SIGKILL runs no
 # traps). Also note slurm stdout only FLUSHES at job end, so the mirror is
 # the only way to see these lines while the job is still running.
-SLURM_LOG=/shared/data/global_fit_output/gf12mo_v1.2.8dev_${SLURM_JOB_ID:-manual}.log
+SLURM_LOG=/shared/data/global_fit_output/gf12mo_flagship_${SLURM_JOB_ID:-manual}.log
 LOG_MIRROR_PID=""
 if [ -n "${SLURM_JOB_ID:-}" ]; then
   ( while true; do
@@ -3645,7 +3648,7 @@ export GB_FSTAT_PEAK_MIN_SNR_PE_GB_FREE=6.5
 # whose yield did not decay over the 160 rows its grid aged, so the F-stat
 # share goes to the residual move (0.45 -> 0.405 residual / 0.045 galaxy);
 # warm 0.4 above, prior the remaining 0.15. 0 or 1 composes ONE F-stat move.
-export GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=${GB_PE_RJ_FSTAT_RESIDUAL_SPLIT:-0.9}
+export GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=${GB_PE_RJ_FSTAT_RESIDUAL_SPLIT:-1}
 # GB_FSTAT_FORCE_REFIT=1 on a launch line now refits BOTH PE grids (one new
 # epoch per root, the 3.5-h galaxy included) -- leave it off a PE resume.
 # WHICH WALKER A PE REFIT FITS (code default, NOT exported; user ruling
@@ -5730,6 +5733,7 @@ PYEOF
 # place through Run.overrides instead (build.py rewrites that export line).
 export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 12 month analysis}"
 export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-v1.2.8dev}"
+export STAGE_SKIP_NOISE="${STAGE_SKIP_NOISE:-1}"
 
 # ============================================================================
 # FRESH-RUN GUARD (2026-08-15). This submission starts a NEW run in a NEW
