@@ -9425,7 +9425,36 @@ _col2_note = ("" if _col2 is not None else
 # block and a Notes line, never the page.
 import html as _html_mod  # noqa: E402
 
-from lisatools.globalfit.monitor._short import GLANCE_CSS, build_glance  # noqa: E402
+
+def _fresh_short_module():
+    """Re-read ``_short.py`` from disk and return the module (2026-11-04).
+
+    This script is re-compiled from disk on every in-run rebuild, but a plain
+    ``from ..._short import`` hands back whatever copy of ``_short`` the
+    saver process imported at JOB START (``monitor/__init__`` imports it), so
+    a pulled change to the glance block (the 200/50-row toggle, f1c75f00)
+    never reached the running 12mo job's page. Reloading here makes the glance
+    block as hot as this script. A ``_short.py`` that no longer compiles keeps
+    the copy already loaded (``reload`` compiles before it executes) and
+    the rebuild says so in Notes; it never costs the page.
+    """
+    import importlib
+    import sys
+
+    name = "lisatools.globalfit.monitor._short"
+    mod = sys.modules.get(name)
+    if mod is None:                       # first import in this process is already fresh
+        return importlib.import_module(name)
+    try:
+        return importlib.reload(mod)
+    except Exception as e:                # noqa: BLE001
+        MISSING.append(f"_short.py did not reload ({type(e).__name__}: {e}); the glance "
+                       "block is from the copy loaded at job start")
+        return sys.modules.get(name, mod)
+
+
+_short_mod = _fresh_short_module()
+GLANCE_CSS, build_glance = _short_mod.GLANCE_CSS, _short_mod.build_glance
 
 GLANCE_HTML = GLANCE_NAV = GLANCE_NOTES_HTML = ""
 GLANCE_NOTES = []
