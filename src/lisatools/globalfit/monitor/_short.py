@@ -142,6 +142,12 @@ SRC_BRANCHES = ("mbh", "emri", "sobbh")
 #: flagged -- is named in the source table (another mode, or the source lost).
 SRC_SNR_OFF = 0.2
 SRC_SNR_OFF_ABS = 3.0
+#: How many trailing rows the other-sources table searches back for the last
+#: WRITTEN ``sub_backend/<branch>/d_h`` row. The saver writes a row's main
+#: backend first and its sub-backends after, so a page built in between reads
+#: the newest sub-backend row as HDF5 zero fill (12mo row 1430, 2026-11-04:
+#: every MBHB / EMRI / SOBHB source at "SNR 0.0"). One row is the usual lag.
+SRC_DH_LOOKBACK = 5
 
 #: Stores that are never the live one (same list as gf_last_iteration.py).
 SKIP = ("backup", "CORRUPT", "pre_rerung", "pre_repair", "midit", ".stale")
@@ -328,10 +334,13 @@ def stage_bounds(steps: list) -> list:
     return out
 
 
-def _source_rows(g, _row, branch, nit, pool_w):
+def _source_rows(g, _row, branch, nit, pool_w, last_written):
     """One fixed-dimension branch's last ``pool_w`` rows: cold-chain coordinates
-    ``(W, nw, nleaves, ndim)``, alive mask ``(W, nw, nleaves)``, and the last
-    row's ``<d|h>`` / ``<h|h>`` ``(nw, nleaves)``; None when unreadable."""
+    ``(W, nw, nleaves, ndim)``, alive mask ``(W, nw, nleaves)``, and the
+    ``<d|h>`` / ``<h|h>`` ``(nw, nleaves)`` of the last sub-backend row BOTH
+    were written through (``dh_row``; within ``SRC_DH_LOOKBACK`` rows of the
+    end, else None) -- the newest row can still be zero fill mid-flush, the
+    same lag the noise panels trim with ``last_written``. None when unreadable."""
     lo = max(0, nit - pool_w)
 
     def rd(name, sel):           # _row reads through a torn chunk, not a missing dataset
@@ -339,13 +348,22 @@ def _source_rows(g, _row, branch, nit, pool_w):
 
     ch = rd(f"chain/{branch}", (slice(lo, nit), 0, 0))
     ind = rd(f"inds/{branch}", (slice(lo, nit), 0, 0))
-    dh = rd(f"sub_backend/{branch}/d_h", (nit - 1,))
-    hh = rd(f"sub_backend/{branch}/h_h", (nit - 1,))
     if ch is None or ind is None:
         return None
+    lo_dh = max(0, nit - SRC_DH_LOOKBACK)
+    dh = rd(f"sub_backend/{branch}/d_h", (slice(lo_dh, nit),))
+    hh = rd(f"sub_backend/{branch}/h_h", (slice(lo_dh, nit),))
+    dh_row = None
+    if dh is not None and hh is not None:
+        dh, hh = np.asarray(dh, float), np.asarray(hh, float)
+        k = min(last_written(dh), last_written(hh))
+        if k:
+            dh_row = lo_dh + k - 1
+            dh, hh = dh[k - 1], hh[k - 1]
+    if dh_row is None:
+        dh = hh = None
     return dict(chain=np.asarray(ch, float), inds=np.asarray(ind, bool), lo=lo,
-                dh=None if dh is None else np.asarray(dh, float),
-                hh=None if hh is None else np.asarray(hh, float))
+                dh=dh, hh=hh, dh_row=dh_row)
 
 
 def read_store(store: str, run_dir: str, ns: dict, notes: list) -> dict:
@@ -474,7 +492,7 @@ def read_store(store: str, run_dir: str, ns: dict, notes: list) -> dict:
             S["src"] = {}
             pool_w = int(ns["_src_pool_window"](nit))
             for b in SRC_BRANCHES:
-                rows = _source_rows(g, _row, b, nit, pool_w)
+                rows = _source_rows(g, _row, b, nit, pool_w, ns["_last_written"])
                 if rows is not None:
                     S["src"][b] = rows
             S["torn_rows"] = list(ns["_TORN_ROWS"])
@@ -601,7 +619,16 @@ def source_summary(S: dict, run_dir: str, ns: dict, mojito_tree, notes: list) ->
                              snr=snr, off=off, pulls=pulls, n_pool=int(pool.shape[0]),
                              truth=truth is not None))
         out[b] = dict(cls=spec["cls"], params=key, rows=recs, nw=nw,
-                      pool=int(chain.shape[0]), has_cat=cat is not None)
+                      pool=int(chain.shape[0]), has_cat=cat is not None,
+                      dh_row=rows.get("dh_row"))
+        _last = int(rows["lo"]) + int(chain.shape[0]) - 1
+        if rows.get("dh_row") is not None and rows["dh_row"] < _last:
+            notes.append(f"{spec['cls']} SNRs read from row {rows['dh_row']}: "
+                         f"sub_backend/{b} was written through it while the main backend "
+                         f"reached {_last} (caught mid-flush).")
+        elif rows.get("dh_row") is None:
+            notes.append(f"{spec['cls']}: no written sub_backend/{b}/d_h row in "
+                         f"the last {SRC_DH_LOOKBACK} rows -- no SNRs.")
         if cat is None:
             notes.append(f"{spec['cls']}: no catalogue under "
                          f"{_html.escape(str(mojito_tree or 'no mojito tree'))}/catalogues "
@@ -1561,6 +1588,8 @@ def _sources_html(src: dict, nit: int) -> str:
                 '(or its chains are unreadable).</div>')
     parts = []
     pool = nw = None
+    lag = sorted({d.get("dh_row") for d in src.values()
+                  if d.get("dh_row") is not None and d["dh_row"] < nit - 1})
     for b in SRC_BRANCHES:
         if b not in src:
             continue
@@ -1597,7 +1626,10 @@ def _sources_html(src: dict, nit: int) -> str:
                         + f"<td class='off'>{note}</td></tr>")
         parts.append("<table class='src'>" + head + "".join(body) + "</table>")
     return ('<div class="panel">' + "".join(parts)
-            + f'<div class="caption">Every MBHB, EMRI and SOBHB source at row {nit - 1}. '
+            + f'<div class="caption">Every MBHB, EMRI and SOBHB source at row {nit - 1}'
+            + (f" (SNR at row {', '.join(map(str, lag))}, the sub-backend&rsquo;s last "
+               "written row: this snapshot caught the saver mid-flush)" if lag else "")
+            + '. '
             "<b>SNR</b> is the matched SNR &lang;d|h&rang;/&radic;&lang;h|h&rang; from the "
             f"sub-backend, median over the {nw} cold walkers, with their range; a walker more "
             f"than {SRC_SNR_OFF:.0%} (and {SRC_SNR_OFF_ABS:g} SNR units) off the median is named in "
