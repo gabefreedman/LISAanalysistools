@@ -464,10 +464,9 @@ class PerRunValuesTest(unittest.TestCase):
         self.assertEqual(fr.RUNS["9mo"].store_dir, "/shared/data/global_fit_output/gf_prod_9mo_v9/")
         for name in ORDER:
             if name != "9mo":
-                # gf_prod_12mo_flagship: the first 12mo run, killed 2026-11-02 and
-                # kept for comparison (the v1.2.8dev restart has its own store)
-                for live in ("gf_prod_9mo_v9/", "gf_prod_6mo_v9_4gpu/", "gf_prod_3mo_v9",
-                             "gf_prod_12mo_flagship/"):
+                # gf_prod_12mo_flagship is NOT listed: since 2026-11-03 the 12mo
+                # entry resumes that store in place (user ruling)
+                for live in ("gf_prod_9mo_v9/", "gf_prod_6mo_v9_4gpu/", "gf_prod_3mo_v9"):
                     self.assertNotIn(live, fr.RUNS[name].store_dir)
 
     def test_ngpus_defaults_to_four_everywhere(self):
@@ -577,8 +576,8 @@ class ParentChainTest(unittest.TestCase):
             "6mo": ["gf_prod_3mo_flagship"],
             "9mo": ["gf_prod_6mo_v9_4gpu"],
             "12mo": ["gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
-            "18mo": ["gf_prod_12mo_v1.2.8dev", "gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
-            "24mo": ["gf_prod_18mo_flagship", "gf_prod_12mo_v1.2.8dev", "gf_prod_9mo_v9",
+            "18mo": ["gf_prod_12mo_flagship", "gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
+            "24mo": ["gf_prod_18mo_flagship", "gf_prod_12mo_flagship", "gf_prod_9mo_v9",
                      "gf_prod_6mo_v9_4gpu"],
         }
         for name, dirs in want.items():
@@ -795,6 +794,10 @@ class EveryOtherKnobIsTheNineMonthsTest(unittest.TestCase):
         for name in ORDER:
             with self.subTest(run=name):
                 for knob, want in line.items():
+                    # a level-2 override is a declared exception (e.g. the
+                    # 12mo's GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1, 2026-11-03)
+                    if knob in fr.RUNS[name].overrides:
+                        want = fr.RUNS[name].overrides[knob]
                     self.assertEqual(self.ex[name].get(knob), want, f"{name}: {knob}")
                 for knob in ("GB_FSTAT_FORCE_REFIT", "GB_FSTAT_PE_REF"):
                     self.assertNotIn(knob, self.ex[name], knob)
@@ -935,6 +938,24 @@ class RecipeCompositionTest(unittest.TestCase):
                     self.assertIn("SAMPLED at the END of the cycle", by["gb_search_1"])
                     self.assertNotIn("rj_warm", out)
                 self.assertIn("sobbh_pe/mbh_pe/emri_pe EVERY iteration", by["gb_search_1"])
+
+    def test_the_12mo_continuation_composes_its_stored_recipe_without_a_pin(self):
+        # The 12mo resumes the first 12mo store (gf_prod_12mo_flagship) in
+        # place, whose stored recipe has NO noise stages. On the cluster its parent
+        # copy is gone, so the V9-SEED pin fails and PSD_START_PARAMS is
+        # unset; without STAGE_SKIP_NOISE=1 the driver would put
+        # noise_search / noise_vgb_search ahead of full_pe and add_recipe
+        # would refuse the resume.
+        out = self._recipe("12mo", {})
+        stages = re.findall(r"(?m)^stage \d+/\d+\s+(\w+)\s+kind=", out)
+        self.assertEqual(stages, ["gb_search_seed", "source_search", "gb_search_1",
+                                  "gb_search_2", "full_pe"])
+        # GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1: full_pe carries the live-residual
+        # F-stat move only (the GB-free grid fit OOMs on this grid, job 850)
+        pe = re.split(r"(?m)^stage \d+/\d+\s+", out)[-1]
+        self.assertTrue(pe.startswith("full_pe"), pe[:40])
+        self.assertIn("rj_fstat_pe_residual", pe)
+        self.assertNotRegex(pe, r"rj_fstat_pe(?!_)")
 
 
 if __name__ == "__main__":

@@ -330,11 +330,16 @@ _add(Run(
                   mbhb_ids=mbhb_ids_for(270), copy_of="9mo"),
     gb_nleaves_max=20000, gb_n_subbands=4096, gb_rj_inmodel_chunk=16384,
     edge_crop_wavelets=60,
-    # RESTART v1.2.8dev (2026-11-02): a fresh store in a NEW dir, so the first
-    # 12mo run (gf_prod_12mo_flagship, job gf12mo_flagship) and its logs stay
-    # untouched. The GB band floor is lowered because the first run's monitor
-    # FD residual panels showed detectable binaries below it.
-    store_dirname="gf_prod_12mo_v1.2.8dev", job_name="gf12mo_v1.2.8dev",
+    # CONTINUATION (2026-11-03, team request): the FIRST 12mo run resumed IN
+    # PLACE (gf_prod_12mo_flagship, job gf12mo_flagship) in full_pe where its
+    # chains left off, with the lower GB band floor. Before the resume the
+    # folder is backed up whole, then its GB band grid is extended DOWNWARD
+    # by scripts/fstat_proposal/extend_gb_band_floor.py (1232 -> 1248 bands;
+    # the 16 new bottom bands start empty, every old band keeps its state).
+    # The fresh v1.2.8dev restart (gf_prod_12mo_v1.2.8dev, 2026-11-02) is
+    # cancelled; its store supplies the new band grid. Runbook:
+    # docs/12mo-continue-lower-gb-floor.md.
+    store_dirname="gf_prod_12mo_flagship", job_name="gf12mo_flagship",
     # GB_MIN_FREQ 5.5e-4 -> 2.5e-4. The uniform grid snaps the floor UP to a
     # whole WDM layer (layer_df 0.13889 mHz) and clamps it to the WDM floor
     # (MIN_FREQ 2.5e-4 -> layer 2 = 0.27778 mHz):
@@ -342,20 +347,43 @@ _add(Run(
     #   3e-4   -> band_edges[0] 0.41667 mHz (NOT ~0.3 mHz)
     #   2.5e-4 -> band_edges[0] 0.27778 mHz, f0 prior from 0.29514, 1248 bands
     # (f0_lims = band_edges[1], one layer_df/8 = 17.36 uHz sub-band in). The GB
-    # band now overlaps the four lowest VGBs (0.31-0.34 mHz). NOT
-    # resume-compatible with a store built on the old grid.
-    overrides={"GB_MIN_FREQ": "2.5e-4"},
-    # monitor page (user request 2026-11-02): plain title, version on the
-    # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
+    # band now overlaps the four lowest VGBs (0.31-0.34 mHz). A store built on
+    # the old grid resumes ONLY after extend_gb_band_floor.py (the old grid is
+    # the top 1232 bands of the new one, so the extension is exact).
+    #
+    # GB_PE_RJ_FSTAT_RESIDUAL_SPLIT 0.9 -> 1 (the first 12mo run's resumes
+    # since job 851, set on the launch line until now): full_pe carries ONLY
+    # the live-residual F-stat move. The GB-free galaxy grid move
+    # (rj_fstat_pe) fits its grid once at PE entry, and on this 12mo grid
+    # that fit ran 6.9 h of stage B and then ran the GPU out of memory (job
+    # 850, 2026-10-30, 89 GB allocated); it never completed in this run (no
+    # epoch dir for it), and nothing has changed in that code since. Its
+    # 0.045 share of the draw goes to rj_fstat_pe_residual.
+    overrides={"GB_MIN_FREQ": "2.5e-4", "GB_PE_RJ_FSTAT_RESIDUAL_SPLIT": "1"},
     extra_exports=(
+        # monitor page (user request 2026-11-02): plain title, version on the
+        # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py);
+        # v1.2.8dev = the code version this run resumes on (user 2026-11-03)
         'export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 12 month analysis}"',
         'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-v1.2.8dev}"',
+        # The store's recipe has NO noise stages (the first 12mo launch had a
+        # noise pin). The parent copy gf_prod_9mo_v9_copy is gone, so the
+        # V9-SEED pin fails and today's driver would compose noise_search /
+        # noise_vgb_search AHEAD of full_pe, which add_recipe refuses ("stages
+        # can only be ADDED after the active stage"). On a resume the start
+        # pins are unused anyway; this keeps the composed recipe = the stored
+        # one (gb_search_seed, source_search, gb_search_1, gb_search_2,
+        # full_pe). Check with GF_PRINT_RECIPE=1 before launching.
+        'export STAGE_SKIP_NOISE="${STAGE_SKIP_NOISE:-1}"',
     ),
     notes=(
-        "RESTART v1.2.8dev (2026-11-02): fresh store gf_prod_12mo_v1.2.8dev with",
-        "GB_MIN_FREQ 5.5e-4 -> 2.5e-4 (GB band floor 0.5556 -> 0.2778 mHz, f0 prior",
-        "from 0.2951 mHz, 1248 sub-bands); the first 12mo run stays in",
-        "gf_prod_12mo_flagship. See RUNS['12mo'] in runs.py for the edge table.",
+        "CONTINUATION (2026-11-03): the first 12mo run (gf_prod_12mo_flagship, in",
+        "full_pe) resumed IN PLACE after a whole-folder backup, its GB band grid",
+        "extended down by extend_gb_band_floor.py; GB_MIN_FREQ 5.5e-4 -> 2.5e-4",
+        "(GB band floor 0.5556 -> 0.2778 mHz, f0 prior from 0.2951 mHz, 1248",
+        "sub-bands). STAGE_SKIP_NOISE=1 keeps the recipe the stored one;",
+        "GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1 drops the GB-free F-stat move (its grid",
+        "fit OOMs on this grid, job 850). Runbook: docs/12mo-continue-lower-gb-floor.md.",
         "PARENT = gf_prod_9mo_v9_copy, a COPY of the live 9mo run folder taken",
         "before this launch (Mike 2026-10-13) -- the warm starts never read the",
         "live store. The monitor page overlays the LIVE 9mo and its 6mo parent",
