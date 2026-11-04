@@ -38,7 +38,7 @@ class FullPageLayoutTest(unittest.TestCase):
         cls.main = cls.tpl[cls.tpl.index("<main>"):cls.tpl.index("</main>")]
 
     def test_the_glance_block_is_the_short_pages_and_comes_first(self):
-        self.assertIn("from lisatools.globalfit.monitor._short import GLANCE_CSS, build_glance",
+        self.assertIn("GLANCE_CSS, build_glance = _short_mod.GLANCE_CSS, _short_mod.build_glance",
                       self.src)
         i_g = self.main.index('<div id="glance">')
         self.assertIn("{GLANCE_HTML}", self.main[i_g:self.main.index("</div>", i_g)])
