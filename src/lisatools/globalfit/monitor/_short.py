@@ -1064,18 +1064,50 @@ def _png(fig, dpi=None) -> str:
     return base64.b64encode(shrink_png(buf.getvalue())).decode()
 
 
-def fig_history(ns, y, ylabel, title, target=None):
+def history_windows(ns, nit):
+    """Recent-window lengths (rows) the glance lnL / leaf figures are drawn
+    at, longest first; the page shows the first and a toggle swaps in the
+    others (user request 2026-11-04: in a long full_pe the 50-row window is
+    too short to read a trend from).
+
+    The short window is the generator's ``_zoom_its`` (<= 50). A long one is
+    added only once the run is long enough that it is still a ZOOM, i.e. at
+    most half the stored rows -- a "last 200 rows" panel over a 160-row run
+    would just redraw the whole-run panel beside it:
+
+        N < 200 -> short only     N < 400 -> 100 + short     N >= 400 -> 200 + short
+    """
+    nit = int(max(nit, 0))
+    short = max(int(ns["_zoom_its"](nit)), 1)
+    if nit < 200:
+        return [short]
+    long_ = 100 if nit < 400 else 200
+    return [long_, short] if long_ > short else [short]
+
+
+def fig_history_set(ns, y, ylabel, title, target=None):
+    """``[(rows, png), ...]``: :func:`fig_history` at each of
+    :func:`history_windows`, longest first."""
+    return [(nz, fig_history(ns, y, ylabel, title, target=target, nz=nz))
+            for nz in history_windows(ns, y.shape[0])]
+
+
+def fig_history(ns, y, ylabel, title, target=None, nz=None):
     """Whole run (left) and the recent window (right): every cold walker of
     ``y`` (rows, walkers) as its own line and the walker mean as a thick one,
     drawn by the generator's ``plot_walker_lines`` so a walker has the full
     page's colour (user request 2026-10-12, was a min-max band + mean); stage
     boundaries via the generator's ``mark_stages``; ``target`` = ``(value,
-    label)`` draws a dotted reference on the whole-run panel."""
+    label)`` draws a dotted reference on the whole-run panel. ``nz`` is the
+    recent window in rows (default the generator's ``_zoom_its``), clamped
+    to the rows that exist."""
     from matplotlib.figure import Figure
 
     nit = y.shape[0]
     x = np.arange(nit)
-    nz = max(int(ns["_zoom_its"](nit)), 1)
+    if nz is None:
+        nz = ns["_zoom_its"](nit)
+    nz = max(min(int(nz), nit), 1)
     fig = Figure(figsize=(11.6, 3.5))
     ax = fig.subplots(1, 2)
     every = ns["STAGE_BOUNDS"]
@@ -1258,6 +1290,16 @@ table.src td.p3 { color:var(--red); font-weight:bold; }
 table.src td.off { color:var(--red); text-align:left; white-space:normal; }
 .warn { color:var(--red); }
 .dim { color:var(--dim); }
+.winsw > .wl { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:4px; }
+.winsw > input.ws { position:absolute; opacity:0; width:1px; height:1px; margin:0; }
+.winsw > label { display:inline-block; font-size:11px; color:var(--dim); border:1px solid var(--line);
+  border-radius:3px; padding:1px 8px; margin:0 0 8px 6px; cursor:pointer; }
+.winsw > label:hover { color:var(--cyan); }
+.winsw > input.ws:checked + label { color:var(--cyan); border-color:var(--cyan); }
+.winsw > input.ws:focus-visible + label { outline:1px solid var(--cyan); outline-offset:1px; }
+.winsw > .wv { display:none; }
+.winsw > input.ws0:checked ~ .wv0, .winsw > input.ws1:checked ~ .wv1,
+.winsw > input.ws2:checked ~ .wv2 { display:block; }
 """
 
 
@@ -1303,6 +1345,26 @@ def _img(b64: Optional[str], alt: str) -> str:
     if not b64:
         return f'<div class="missing">plot unavailable: {_e(alt)}</div>'
     return f'<img src="data:image/png;base64,{b64}" alt="{_e(alt)}">'
+
+
+def _window_img(variants, alt: str, key: str) -> str:
+    """One figure drawn at several recent windows (:func:`fig_history_set`).
+    A single variant is a plain ``<img>``; several get a row of
+    "last N rows" radio buttons that show one image at a time. Pure CSS
+    (``.winsw`` in GLANCE_CSS): the short page carries no script, and the
+    block is embedded verbatim in the full page."""
+    variants = [v for v in (variants or []) if v[1]]
+    if len(variants) <= 1:
+        return _img(variants[0][1] if variants else None, alt)
+    name = f"win-{key}"
+    btns, views = [], []
+    for k, (nz, b64) in enumerate(variants):
+        rid = f"{name}-{nz}"
+        btns.append(f'<input type="radio" class="ws ws{k}" name="{name}" id="{rid}"'
+                    f'{" checked" if k == 0 else ""}><label for="{rid}">last {nz} rows</label>')
+        views.append(f'<div class="wv wv{k}">{_img(b64, f"{alt}, last {nz} rows")}</div>')
+    return (f'<div class="winsw"><span class="wl">recent window</span>'
+            f'{"".join(btns)}{"".join(views)}</div>')
 
 
 def _live_rows(row, live, stage):
@@ -1650,14 +1712,15 @@ def build_glance(run_dir: str, *, mojito: Optional[str] = None) -> dict:
     psd_bias = {}
     imgs = {}
     with matplotlib.rc_context(STYLE):
-        imgs["lnl"] = fig_history(ns, S["ll"] - S["ll"][nit - 1].max(),
-                                  f"cold lnL - {S['ll'][nit - 1].max():,.1f}",
-                                  "cold log-likelihood")
+        # [(rows, png), ...] per recent window, longest first (history_windows)
+        imgs["lnl"] = fig_history_set(ns, S["ll"] - S["ll"][nit - 1].max(),
+                                      f"cold lnL - {S['ll'][nit - 1].max():,.1f}",
+                                      "cold log-likelihood")
         if gb_leaves is not None:
             tgt = ((ov["ndet"], f"{ov['ndet']} detectable (SNR > 7)")
                    if ov is not None else None)
-            imgs["leaves"] = fig_history(ns, gb_leaves, "cold GB leaves",
-                                         "GB leaf count", target=tgt)
+            imgs["leaves"] = fig_history_set(ns, gb_leaves, "cold GB leaves",
+                                             "GB leaf count", target=tgt)
         if ov is not None and ov.get("mm") is not None and ov["mm"].size:
             imgs["overlap"] = fig_overlap(ns, ov)
         _lap("history+overlap figures")
@@ -1703,21 +1766,24 @@ def build_glance(run_dir: str, *, mojito: Optional[str] = None) -> dict:
     else:
         ov_html = f'<div class="missing">{ov_note}</div>'
 
+    _wins = [nz for nz, _ in (imgs.get("lnl") or [])]
+    WIN_TXT = (f" (the buttons above each figure switch it between the last "
+               f"{' and '.join(str(n) for n in _wins)} rows)" if len(_wins) > 1 else "")
     html = f"""<section id="topline"><h2>Topline</h2>
 {_topline(S, stage, live, gpu, ov, psd_bias, run_dir)}
 </section>
 
 <section id="lnl"><h2>Log-likelihood</h2>
-<div class="panel">{_img(imgs.get("lnl"), "cold log-likelihood")}
+<div class="panel">{_window_img(imgs.get("lnl"), "cold log-likelihood", "lnl")}
 <div class="caption">Cold-chain total log-likelihood per stored row, relative to the best
 walker at the last row: each of the {nw} cold walkers is its own thin line, in the same colour
 on every per-walker panel of both pages, and the thick light line is their mean. Left the whole
-run, right the recent window. Grey dashed verticals are recipe stage boundaries (completed and
+run, right the recent window{WIN_TXT}. Grey dashed verticals are recipe stage boundaries (completed and
 start iterations from the store's recipe group).</div></div>
 </section>
 
 <section id="leaves"><h2>GB Leaf Count</h2>
-<div class="panel">{_img(imgs.get("leaves"), "GB leaf count")}
+<div class="panel">{_window_img(imgs.get("leaves"), "GB leaf count", "leaves")}
 <div class="caption">Galactic-binary leaves per cold walker per stored row, each walker its
 own line and the thick line their mean, same layout, colours and marks{", against the detectable target (dotted red)" if ov else ""}.
 The fixed-size branches are listed in the topline.</div></div>
