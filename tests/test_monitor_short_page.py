@@ -127,10 +127,13 @@ def _mbh_truths():
     return to(rows[1]), to(rows[0])
 
 
-def _make_run(root, name="gf_prod_test", *, log=True, csv=True, sources=False):
+def _make_run(root, name="gf_prod_test", *, log=True, csv=True, sources=False,
+              mid_flush=False):
     """A run directory the short page can read: the store plus, optionally,
     the head log, the head node's GPU CSV, and an MBH branch with its
-    run_settings.log source ids."""
+    run_settings.log source ids. ``mid_flush`` leaves the last row of every
+    sub-backend unwritten (HDF5 zero fill), as a snapshot caught between the
+    saver's main-backend write and its sub-backend writes reads it."""
     run = os.path.join(root, name)
     os.makedirs(run)
     rng = np.random.default_rng(7)
@@ -202,6 +205,8 @@ def _make_run(root, name="gf_prod_test", *, log=True, csv=True, sources=False):
             hh = np.full((CAP, NW, 2), 400.0)               # SNR 20 for both leaves ...
             dh = np.full((CAP, NW, 2), 400.0)
             dh[:, 0, 1] = 100.0                             # ... but walker 0 holds leaf 1 at SNR 5
+            if mid_flush:
+                hh[NIT - 1:], dh[NIT - 1:] = 0.0, 0.0
             g.create_dataset("sub_backend/mbh/h_h", data=hh)
             g.create_dataset("sub_backend/mbh/d_h", data=dh)
     art = os.path.join(run, f"{name}_artifacts")
@@ -393,6 +398,29 @@ class ShortPageSourcesTest(_Cwd, unittest.TestCase):
         self.assertRegex(leaf0, r"<td class='dim'>[^<]*</td><td class='p3'>\+[5-7]\.\d</td>")
         self.assertNotIn("p3", leaf1)
         self.assertNotIn("w0 at SNR", leaf0)
+
+    def test_a_snapshot_caught_mid_flush_reads_the_last_written_row(self):
+        # 12mo row 1430 (2026-11-04): the page was built between the saver's
+        # main-backend and sub-backend writes, so the last sub_backend/mbh
+        # row read as zeros and every source showed "SNR 0.0"
+        run = _make_run(self.d, log=False, csv=False, sources=True, mid_flush=True)
+        moj = _make_mojito(self.d)
+        html = sh.render_short_page(run, mojito=moj, now=NOW)
+        sec = html[html.index('<section id="sources">'):html.index('<section id="overlap">')]
+        self.assertIn("<td class='l'>src 1</td><td><b>20.0</b></td>", sec)
+        self.assertIn("<td class='l'>src 0</td><td><b>20.0</b></td>", sec)
+        self.assertIn("w0 at SNR 5.0 (median 20.0)", sec)
+        self.assertNotIn("<b>0.0</b>", sec)
+        self.assertIn(f"SNR at row {NIT - 2}", sec)
+        self.assertIn(f"MBHB SNRs read from row {NIT - 2}", html)
+
+    def test_the_snr_row_is_the_last_row_when_nothing_lags(self):
+        run = _make_run(self.d, log=False, csv=False, sources=True)
+        html = sh.render_short_page(run, mojito=_make_mojito(self.d), now=NOW)
+        sec = html[html.index('<section id="sources">'):html.index('<section id="overlap">')]
+        self.assertIn(f"source at row {NIT - 1}.", sec)
+        self.assertNotIn("SNR at row", sec)
+        self.assertNotIn("SNRs read from row", html)
 
     def test_without_a_catalogue_the_table_keeps_the_snrs(self):
         run = _make_run(self.d, log=False, csv=False, sources=True)
