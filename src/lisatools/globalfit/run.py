@@ -1556,6 +1556,18 @@ class GlobalFit:
                             f"F-stat fit epoch cache is keyed by band index "
                             f"and must be refit — the loader refuses stale "
                             f"grids."
+                            + (
+                                " VGB grid ONE band longer than the store's: "
+                                "the edge-band guard (2026-11-04) split an "
+                                "empty guard band off a band holding a VGB; "
+                                "migrate exactly with scripts/fstat_proposal/"
+                                "extend_gb_band_floor.py <store> --branch vgb "
+                                f"--edges-npy {_edges_out} (see docs/"
+                                "12mo-vgb-edge-band-guard.md)."
+                                if _banded == "vgb"
+                                and _cfg_edges.shape[0] == _stored_edges.shape[0] + 1
+                                else ""
+                            )
                         )
 
         if state is None and self.curr.general_info.past_file_for_start is not None:
