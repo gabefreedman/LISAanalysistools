@@ -209,6 +209,28 @@ class TDDenseTest(unittest.TestCase):
         ch = np.real(np.asarray(dense.channels(self.params[1:], sum_subs=True, stop_taper=stop_taper))[0])
         return t, ch, np.cumsum(ch.sum(axis=0)) * step, t_k[-1]
 
+    def test_read_only_single_row_time_grid(self):
+        """A one-row time grid that is a read-only broadcast view (``EMRIDirectWDM._dense_td``
+        broadcasts a shared 1-D grid to ``(n, N)``; with n = 1 ``ascontiguousarray`` keeps the
+        view) must run: the nanobind binding refuses read-only arrays."""
+        from lisatools.response.tdionfly import TDDenseTDIonTheFly
+
+        K = 41
+        t_k = self.t_k[0] + np.linspace(0.0, 2 * 86400.0, K)
+        Phi_k = 0.3 + (t_k - t_k[0])[:, None] * np.array([2 * np.pi * 5.5e-3, 0.0, 0.0])[None, :]
+        are = np.zeros((1, K - 1, 4))
+        are[0, :, 0] = 1.0
+        t = t_k[-1] + np.arange(-6000.0, 3000.0, 10.0)
+        t_ro = np.broadcast_to(t[None, :], (1, t.size))
+        self.assertFalse(t_ro.flags.writeable)
+        out = {}
+        for name, grid in (("writable", t[None].copy()), ("read-only", t_ro)):
+            dense = TDDenseTDIonTheFly(grid, np.array([0, 1]), np.array([[2, 0, 0]]), t_k[None], np.array([K]),
+                                       _dense_linear(t_k, Phi_k)[None], are, np.zeros_like(are),
+                                       tdi_config=self.tdi, orbits=self.orbits, force_backend="cpu")
+            out[name] = np.asarray(dense.channels(self.params[1:], sum_subs=True, stop_taper=120.0))
+        np.testing.assert_array_equal(out["read-only"], out["writable"])
+
     def test_stop_taper_removes_the_sampled_stop_area(self):
         """A source that stops abruptly has no net T-like area (every delay term is the same truncated
         function), but SAMPLED, each term's cut falls at its own place between samples and the
