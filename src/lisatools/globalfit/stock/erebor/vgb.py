@@ -139,6 +139,82 @@ def _vgb_ndim_default() -> int:
     )
 
 
+def vgb_guard_edge_bands(edges, fine_edges, f0_hz) -> np.ndarray:
+    """Return ``edges`` with an empty guard band split off any edge band that holds a VGB.
+
+    The VGB move never proposes in the first or last band (they are guard
+    bands), so a source there is never sampled. When the lowest (highest)
+    band holds a source, it is split at the first (last) edge of the FINE
+    grid it was coarsened from: the guard becomes one fine band, the same
+    width as the GB branch's guard, and the source band keeps the rest.
+    Grids that already have every source in an interior band are returned
+    unchanged (bit-identical), so existing stores keep resuming.
+
+    Args:
+        edges: Coarse VGB band edges (Hz), ascending.
+        fine_edges: The fine grid ``edges`` was taken from (Hz); every coarse
+            edge must be one of its edges.
+        f0_hz: Catalogue frequencies (Hz).
+
+    Returns:
+        np.ndarray: The guarded edges.
+
+    Raises:
+        ValueError: A source sits inside the would-be guard band (the fine grid
+            is too coarse to split it off), or a source lies outside the grid.
+    """
+    out = np.asarray(edges, dtype=float).copy()
+    fine = np.asarray(fine_edges, dtype=float)
+    f0 = np.asarray(f0_hz, dtype=float).ravel()
+    if f0.size == 0:
+        return out
+    if f0.min() < out[0] or f0.max() >= out[-1]:
+        raise ValueError(
+            f"VGB f0 span [{f0.min():.6e}, {f0.max():.6e}] Hz lies outside the band "
+            f"grid [{out[0]:.6e}, {out[-1]:.6e}] Hz."
+        )
+
+    def _band_of(e):
+        return np.searchsorted(e, f0, side="right") - 1
+
+    if np.any(_band_of(out) == 0):
+        split = fine[np.searchsorted(fine, out[0], side="right")]
+        if not (out[0] < split < out[1]) or f0.min() < split:
+            raise ValueError(
+                f"VGB at {f0.min():.6e} Hz sits in the lowest band "
+                f"[{out[0]:.6e}, {out[1]:.6e}) Hz and no fine edge below it can "
+                "split off an empty guard band; raise MIN_FREQ or lower "
+                "VGB_BAND_LAYERS."
+            )
+        out = np.insert(out, 1, split)
+    nb = len(out) - 1
+    if np.any(_band_of(out) == nb - 1):
+        split = fine[np.searchsorted(fine, out[-1], side="left") - 1]
+        if not (out[-2] < split < out[-1]) or f0.max() >= split:
+            raise ValueError(
+                f"VGB at {f0.max():.6e} Hz sits in the highest band "
+                f"[{out[-2]:.6e}, {out[-1]:.6e}) Hz and no fine edge above it can "
+                "split off an empty guard band; raise MAX_FREQ or lower "
+                "VGB_BAND_LAYERS."
+            )
+        out = np.insert(out, len(out) - 1, split)
+    b = _band_of(out)
+    assert np.all((b >= 1) & (b <= len(out) - 3)), "every VGB must live in an interior band"
+    return out
+
+
+def _merged_band_n_vals(fine_edges, fine_n_vals, edges) -> np.ndarray:
+    """Per-band N of ``edges``: the max over the fine bands each one covers."""
+    lo = np.asarray(fine_edges, dtype=float)[:-1]
+    n = np.asarray(fine_n_vals)
+    e = np.asarray(edges, dtype=float)
+    out = []
+    for a, b in zip(e[:-1], e[1:]):
+        m = (lo >= a * (1 - 1e-12)) & (lo < b * (1 - 1e-12))
+        out.append(n[m].max() if m.any() else n[np.searchsorted(lo, a, side="right") - 1])
+    return np.asarray(out, dtype=n.dtype)
+
+
 # TODO check: keep/remove/document -- only reachable with VGB_BAND_EDGES_MODE=preset (no launcher)
 def vgb_preset_band_edges(
     f0_hz,
@@ -904,6 +980,8 @@ class VGBSetup(GBSetup):
         # separation to L layers per band; the interior-band bookkeeping
         # (f0_lims, num_sub_bands, band_N_vals) is recomputed to match.
         L = int(getattr(self, "band_layers", 1) or 1)
+        fine_edges = np.asarray(self.band_edges, dtype=float).copy()
+        fine_n_vals = np.asarray(self.band_N_vals).copy()
         if L > 1:
             edges = np.asarray(self.band_edges)
             keep = edges[::L]
@@ -921,6 +999,33 @@ class VGBSetup(GBSetup):
                 "VGB band separations coarsened to %d WDM layers/band "
                 "(VGB_BAND_LAYERS): %d sub-bands.", L, self.num_sub_bands,
             )
+
+        # Edge-band guard (2026-11-04). run_proposal / tempering never touch
+        # the first or last band, so every VGB must sit in an interior band.
+        # prepare_vgb_branch asks for one guard band below the lowest f0, but
+        # clamps that guard to MIN_FREQ; with MIN_FREQ=2.5e-4 the 8 VGBs at
+        # 0.31-0.41 mHz landed in band 0 and were never sampled.
+        if self.fixed_params is not None:
+            f0_hz = np.asarray(self.fixed_params, dtype=float)[
+                :, vgb_fixed_basis(self).index("f0")
+            ] * 1e-3
+            guarded = vgb_guard_edge_bands(self.band_edges, fine_edges, f0_hz)
+            if guarded.shape != np.asarray(self.band_edges).shape:
+                self.logger.warning(
+                    "VGB edge-band guard: %d catalogue source(s) sat in an edge "
+                    "band, which is never proposed; split off an empty guard "
+                    "band (%d -> %d sub-bands, lowest edges %s mHz).",
+                    int(np.sum(
+                        (f0_hz < np.asarray(self.band_edges)[1])
+                        | (f0_hz >= np.asarray(self.band_edges)[-2])
+                    )),
+                    len(self.band_edges) - 1, len(guarded) - 1,
+                    np.array2string(guarded[:3] * 1e3, precision=6),
+                )
+                self.band_N_vals = _merged_band_n_vals(fine_edges, fine_n_vals, guarded)
+                self.band_edges = guarded
+                self.f0_lims = [self.band_edges[1].min(), self.band_edges[-2].max()]
+                self.num_sub_bands = len(self.band_edges) - 1
 
     def _init_preset_band_structure(self):
         """Band structure for ``band_edges_mode='preset'``.
