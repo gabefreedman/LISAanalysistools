@@ -45,7 +45,25 @@ Writes are staged: every new dataset is written under a temporary name
 first, and only when all of them are complete are the old ones swapped
 out. RUN IT ON A COPY OF THE STORE, never on the only copy.
 
+VGB guard split (``--branch vgb``, 2026-11-04): the VGB move never proposes in
+the first or last band, and on the 12mo store the lowest VGB band
+[0.2778, 0.4167) mHz held 8 catalogue sources that were therefore never
+sampled. The fixed code (``vgb_guard_edge_bands``) splits that band at the
+first fine edge, so the stored grid gains ONE edge inside its lowest band.
+On the per-band arrays that is the same operation as a one-band downward
+extension: the new guard band 0 takes the fresh value, the old band 0 (now
+band 1, still holding the 8 sources) and every band above keep their records,
+moved up by one. ``--guard-from-gb-grid`` takes the split edge from the same
+store's GB grid (its second edge: the GB and VGB fine grids are the same
+``k * layer_df / 8`` edges), or pass the ``vgb_config_band_edges.npy`` a
+refused resume writes with ``--edges-npy``. The VGB cap grid is the band grid
+(cap-free branch; the resume drops it anyway) and is rewritten to match.
+
 Usage::
+
+    # VGB guard split on the same store:
+    python scripts/fstat_proposal/extend_gb_band_floor.py <copy>/gf_prod_12mo_testing.h5 \\
+        --branch vgb --guard-from-gb-grid
 
     # new grids from a store built with the target config (preferred):
     python scripts/fstat_proposal/extend_gb_band_floor.py <copy>/gf_prod_12mo_testing.h5 \\
@@ -117,6 +135,7 @@ BAND_AXIS = {
 F0_COL, F0_SCALE = 1, 1e3
 
 STAMP = "band_floor_extended"
+VGB_STAMP = "band_guard_split"
 TMP_SUFFIX = "__floorext_tmp"
 ROW_BLOCK = 64
 
@@ -160,10 +179,41 @@ def fresh_fill_values(nwalkers, ntemps, cap_divisor, cap_stagger):
     return out
 
 
-def read_grids(path):
+def fresh_fill_values_vgb(nwalkers, ntemps):
+    """FRESH-START values for a cap-free VGB band record.
+
+    The VGB record is built with ``leaf_caps=False`` (recipe.py); its values
+    override the GB all-families record, which supplies the per-walker
+    shutoff family the VGB store also carries (same defaults on both
+    branches).
+    """
+    from lisatools.globalfit.state import GBState
+
+    out = fresh_fill_values(nwalkers, ntemps, 1, False)
+    st = GBState(None)
+    edges = np.array([1.0, 2.0, 3.0, 4.0])
+    st.initialize_band_information(nwalkers, ntemps, edges, np.zeros((3, ntemps)),
+                                   branch_name="vgb", leaf_caps=False)
+    for name, (axis, _grid) in BAND_AXIS.items():
+        if name in st.band_info:
+            vals = np.unique(np.asarray(st.band_info[name]))
+            if vals.size != 1:
+                raise SystemExit(f"fresh vgb {name!r} has several values {vals}")
+            out[name] = vals[0].item()
+    return out
+
+
+def read_grids(path, branch="gb"):
+    """``(band_edges, cap_edges, other)`` of ``branch``; ``other`` is the VGB grid for gb
+    and the GB grid for vgb."""
     with h5py.File(path, "r") as f:
         group = "global_fit" if "global_fit" in f else "mcmc"
         sb = f[group]["sub_backend"]
+        if branch == "vgb":
+            v = sb["vgb"]
+            be = np.asarray(v["band_edges"][:], dtype=float)
+            ce = np.asarray(v["cap_edges"][:], dtype=float) if "cap_edges" in v else None
+            return be, ce, np.asarray(sb["gb"]["band_edges"][:], dtype=float)
         gb = sb["gb"]
         be = np.asarray(gb["band_edges"][:], dtype=float)
         ce = np.asarray(gb["cap_edges"][:], dtype=float) if "cap_edges" in gb else None
@@ -331,10 +381,202 @@ def verify_resume(path, band_edges, cap_edges, search_shutoff_per_walker=True):
     return 0
 
 
+def _load_last_state(path):
+    """``(backend, state)`` read the way a RESUME reads them, warnings collected."""
+    from lisatools.globalfit.hdfbackend import (
+        EMRIHDFBackend, GBHDFBackend, GFHDFBackend, MBHHDFBackend, ModuleSubBackend,
+        SOBBHHDFBackend)
+    from lisatools.globalfit.state import (
+        EMRIState, GBState, MBHState, ModuleSubState, SOBBHState)
+
+    special = {"gb": (GBState, GBHDFBackend), "vgb": (GBState, GBHDFBackend),
+               "mbh": (MBHState, MBHHDFBackend), "emri": (EMRIState, EMRIHDFBackend),
+               "sobbh": (SOBBHState, SOBBHHDFBackend)}
+    with h5py.File(path, "r") as f:
+        group = "global_fit" if "global_fit" in f else "mcmc"
+        names = [n.decode() if isinstance(n, bytes) else str(n)
+                 for n in f[group].attrs["branch_names"]]
+    states = {n: special.get(n, (ModuleSubState, ModuleSubBackend))[0] for n in names}
+    backends = {n: special.get(n, (ModuleSubState, ModuleSubBackend))[1] for n in names}
+    be = GFHDFBackend(path, sub_state_bases=states, sub_backend=backends)
+    be.check_format_version("resume")
+    return be, be.get_last_sample()
+
+
+def verify_resume_vgb(path, band_edges):
+    """Resume read + the VGB band check the VGB move builder makes (recipe.py:
+    ``initialize_band_information(..., branch_name="vgb", leaf_caps=False)``)."""
+    import logging
+
+    with h5py.File(path, "r") as f:
+        group = "global_fit" if "global_fit" in f else "mcmc"
+        v = f[group]["sub_backend"]["vgb"]
+        nwalkers, ntemps = int(v.attrs["nwalkers"]), int(v.attrs["ntemps"])
+        stored_num_binaries = np.asarray(
+            v["band_num_binaries"][int(f[group].attrs["iteration"]) - 1])
+    seen = []
+
+    class _Grab(logging.Handler):
+        def emit(self, rec):
+            if rec.levelno >= logging.WARNING:
+                seen.append(rec.getMessage())
+
+    handler = _Grab()
+    lg = logging.getLogger("lisatools")
+    lg.addHandler(handler)
+    try:
+        backend, state = _load_last_state(path)
+        sub = state.sub_states["vgb"]
+        nt =sub.initialize_band_information(
+            nwalkers, ntemps, band_edges, np.zeros((len(band_edges) - 1, ntemps)),
+            branch_name="vgb", leaf_caps=False)
+    finally:
+        lg.removeHandler(handler)
+    bi = sub.band_info
+    bad = [w for w in seen if any(s in w.lower() for s in (
+        "reset", "discard", "restart", "reopen", "mismatch", "corrupt"))]
+    print(f"resume check (vgb): stored iteration {backend.iteration}; vgb ntemps {nt}, "
+          f"num_bands {bi['num_bands']}; {len(seen)} warning(s), {len(bad)} "
+          "reset/discard-type")
+    for w in bad:
+        print("  !!", w[:300])
+    nbin = np.asarray(bi["band_num_binaries"])
+    why = [msg for cond, msg in (
+        (bool(bad), "reset/discard-type warnings"),
+        (nt != ntemps, f"ntemps {nt} != stored {ntemps}"),
+        (bi["num_bands"] != len(band_edges) - 1,
+         f"num_bands {bi['num_bands']} != {len(band_edges) - 1}"),
+        (not np.array_equal(nbin, stored_num_binaries),
+         "band_num_binaries changed by the band check"),
+    ) if cond]
+    if why:
+        raise SystemExit("RESUME CHECK FAILED: " + "; ".join(why))
+    print(f"resume check (vgb): OK; cold walker-0 VGB count per band, first 4: "
+          f"{nbin[0, 0, :4].astype(int).tolist()} (band 0 is the guard, must be 0)")
+    if nbin[:, :, 0].any() or nbin[:, :, -1].any():
+        raise SystemExit("RESUME CHECK FAILED: a VGB is still counted in an edge band")
+    return 0
+
+
+def main_vgb(args):
+    """The VGB guard split: one new edge inside the lowest VGB band."""
+    path = os.path.abspath(args.h5_path)
+    old_be, old_ce, gb_be = read_grids(path, "vgb")
+    nb_old = len(old_be) - 1
+
+    if args.guard_from_gb_grid:
+        if not np.isclose(gb_be[0], old_be[0], rtol=1e-12, atol=0.0):
+            raise SystemExit(
+                f"the GB grid starts at {gb_be[0]:.9e} Hz, the VGB grid at "
+                f"{old_be[0]:.9e} Hz: the GB second edge is not the VGB fine edge. "
+                "Use --edges-npy with the vgb_config_band_edges.npy a refused resume "
+                "writes.")
+        new_be = np.insert(old_be, 1, gb_be[1])
+    elif args.edges_npy:
+        new_be = np.asarray(np.load(args.edges_npy), dtype=float)
+    else:
+        raise SystemExit("--branch vgb needs --guard-from-gb-grid or --edges-npy")
+    nb_new = len(new_be) - 1
+
+    print(f"store       : {path}")
+    print(f"old vgb grid: {nb_old} bands, lowest edges {(old_be[:3] * 1e3).round(6)} mHz")
+    print(f"new vgb grid: {nb_new} bands, lowest edges {(new_be[:4] * 1e3).round(6)} mHz")
+    if not np.all(np.diff(new_be) > 0):
+        raise SystemExit("the new band edges are not strictly ascending")
+    if not (nb_new == nb_old + 1 and np.isclose(new_be[0], old_be[0], rtol=1e-12, atol=0.0)
+            and np.allclose(new_be[2:], old_be[1:], rtol=1e-12, atol=0.0)
+            and old_be[0] < new_be[1] < old_be[1]):
+        raise SystemExit("the new grid is not the old grid with ONE edge inserted "
+                         "inside its lowest band: refusing")
+    if old_ce is not None and not np.array_equal(old_ce, old_be):
+        raise SystemExit("the stored vgb cap_edges differ from its band_edges; this "
+                         "script expects the cap-free VGB layout (cap grid = band grid)")
+    print(f"split       : guard band [{new_be[0]*1e3:.6f}, {new_be[1]*1e3:.6f}) mHz; the "
+          "old lowest band's records move to band 1, every other band up by one")
+
+    with h5py.File(path, "r") as f:
+        group = "global_fit" if "global_fit" in f else "mcmc"
+        g = f[group]
+        v = g["sub_backend"]["vgb"]
+        if VGB_STAMP in v.attrs:
+            raise SystemExit(f"already split: {v.attrs[VGB_STAMP]}")
+        nwalkers, ntemps = int(v.attrs["nwalkers"]), int(v.attrs["ntemps"])
+        it = int(g.attrs["iteration"])
+        banded, untouched, refused = plan_datasets(v, nb_old, nb_old)
+        nbin_last = np.asarray(v["band_num_binaries"][it - 1])     # (ntemps, nw, nb)
+    if refused:
+        raise SystemExit("REFUSING, unknown or malformed datasets:\n  " + "\n  ".join(refused))
+    n0 = nbin_last[:, :, 0]
+    print(f"last row    : {it} stored rows; VGBs in the old lowest band per walker "
+          f"(cold rung): {n0[0].astype(int).tolist()} -- these become sampleable")
+
+    fills = fresh_fill_values_vgb(nwalkers, ntemps)
+    print(f"datasets    : {len(banded)} per-band to extend, {len(untouched)} untouched "
+          f"({', '.join(untouched)})")
+    for name in banded:
+        how = ("copy of the old lowest band" if name == "band_temps"
+               else f"fresh value {fills[name]!r}")
+        print(f"  {name:26s} axis {BAND_AXIS[name][0]}: guard band = {how}")
+
+    stem = path[:-3]
+    blockers = [q for q in (stem + "_midit_checkpoint.pkl", stem + "_running_backup_copy.h5")
+                if os.path.exists(q)]
+    if blockers:
+        print("BLOCKERS    : these hold the UN-split state and run.py reads them BEFORE "
+              "the band check -- move them aside:\n  " + "\n  ".join(blockers))
+    if not args.apply:
+        print("\nDRY RUN: nothing written. Re-run with --apply.")
+        return 0
+    if blockers:
+        raise SystemExit("refusing to --apply while the blockers above exist")
+
+    with h5py.File(path, "r+") as f:
+        group = "global_fit" if "global_fit" in f else "mcmc"
+        v = f[group]["sub_backend"]["vgb"]
+        tmps = []
+        for name in banded:
+            axis, _grid = BAND_AXIS[name]
+            tmps.append((name, write_extended(v, name, axis, 1, fills.get(name),
+                                              edge_copy=(name == "band_temps"))))
+            print(f"  staged {name}")
+        for name, tmp in tmps:
+            del v[name]
+            v.move(tmp, name)
+        replace_static(v, "band_edges", new_be)
+        if "cap_edges" in v:
+            replace_static(v, "cap_edges", new_be)
+        v.attrs["num_bands"] = nb_new
+        if "num_cap_cells" in v.attrs:
+            v.attrs["num_cap_cells"] = nb_new
+        v.attrs[VGB_STAMP] = json.dumps({
+            "bands": [nb_old, nb_new], "split_hz": float(new_be[1]),
+            "source": "gb grid" if args.guard_from_gb_grid else args.edges_npy,
+        })
+
+    with h5py.File(path, "r") as f:
+        group = "global_fit" if "global_fit" in f else "mcmc"
+        v = f[group]["sub_backend"]["vgb"]
+        assert np.array_equal(v["band_edges"][:], new_be)
+        for name in banded:
+            assert v[name].shape[BAND_AXIS[name][0]] == nb_new, (name, v[name].shape)
+        nb_after = np.asarray(v["band_num_binaries"][it - 1])
+        assert np.array_equal(nb_after[:, :, 1:], nbin_last), "records did not move up by one"
+        assert not nb_after[:, :, 0].any(), "the guard band is not empty"
+    print(f"done: vgb {nb_old} -> {nb_new} bands; stamp {VGB_STAMP!r} written.")
+    if args.skip_resume_check:
+        return 0
+    return verify_resume_vgb(path, new_be)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("h5_path", help="the COPY of the store to extend in place")
+    p.add_argument("--branch", choices=("gb", "vgb"), default="gb",
+                   help="gb: downward floor extension (default); vgb: split an empty "
+                        "guard band off the lowest VGB band")
     src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--guard-from-gb-grid", action="store_true",
+                     help="--branch vgb: take the split edge from this store's GB grid")
     src.add_argument("--edges-from", help="a store built with the TARGET config; its "
                      "gb band_edges / cap_edges are used and its vgb grid is compared")
     src.add_argument("--edges-npy", help=".npy of the new gb band edges (Hz), e.g. the "
@@ -355,6 +597,15 @@ def main(argv=None):
 
     from lisatools.globalfit.state import make_cap_edges
 
+    if args.branch == "vgb":
+        if args.edges_from:
+            raise SystemExit("--branch vgb takes --guard-from-gb-grid or --edges-npy")
+        if args.verify_resume:
+            return verify_resume_vgb(os.path.abspath(args.h5_path),
+                                     read_grids(args.h5_path, "vgb")[0])
+        return main_vgb(args)
+    if args.guard_from_gb_grid:
+        raise SystemExit("--guard-from-gb-grid is for --branch vgb")
     path = os.path.abspath(args.h5_path)
     if args.verify_resume:
         if args.edges_from:
