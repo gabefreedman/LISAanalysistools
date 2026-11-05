@@ -25,11 +25,14 @@ import sys
 _wt = os.environ.get("LAT_WORKTREE_SRC")
 if _wt:
     _wt = os.path.abspath(_wt)
-    # 1. the redirecting finder of the editable install
-    sys.meta_path[:] = [
-        f for f in sys.meta_path
-        if getattr(type(f), "__module__", "") != "_lisaanalysistools_editable"
-    ]
+    # 1. the redirecting finder of the editable install.  scikit-build-core
+    #    names its module "_lisaanalysistools_editable" (older) or
+    #    "_editable_skbc_lisaanalysistools" (newer); match both.
+    def _is_lat_editable(f):
+        m = getattr(type(f), "__module__", "") or ""
+        return "editable" in m and "lisaanalysistools" in m
+
+    sys.meta_path[:] = [f for f in sys.meta_path if not _is_lat_editable(f)]
     # 2. any other checkout's src on sys.path (an explicit LAT_MAIN_SRC, or any
     #    entry that holds a lisatools package and is not the worktree)
     _main = os.environ.get("LAT_MAIN_SRC")
