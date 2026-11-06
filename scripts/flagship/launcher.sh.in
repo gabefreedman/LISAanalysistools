@@ -14,7 +14,7 @@
                                   # passes --ntasks explicitly on `exec sbatch`
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=0                   # whole-node memory
-#SBATCH --time=24:00:00
+#SBATCH --time={{TIME_LIMIT}}   # per run (runs.py Run.time_limit)
 #SBATCH --output={{OUTPUT_ROOT}}/{{LOG_STEM}}_%j.log     # combined stdout+stderr (captures [MAXLOGL]/[BENCH])
 # ----------------------------------------------------------------------------
 
