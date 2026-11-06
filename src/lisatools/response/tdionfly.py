@@ -1490,6 +1490,10 @@ class TDDenseTDIonTheFly(TDIonTheFly):
             raise RuntimeError("this lisatools backend module has no TDDenseTDIWaveformWrap; rebuild it")
         xp = self.xp
         self.t = xp.ascontiguousarray(xp.asarray(t, dtype=xp.float64))
+        # the nanobind binding refuses read-only numpy arrays; a one-row broadcast view is
+        # already contiguous, so ascontiguousarray hands it through unchanged (cupy has no flag)
+        if not getattr(self.t.flags, "writeable", True):
+            self.t = self.t.copy()
         self.n_temp, self.N = self.t.shape
         self.sub_offsets = xp.asarray(sub_offsets, dtype=xp.int32)
         sub_temp = np.repeat(np.arange(self.n_temp, dtype=np.int32), np.diff(sub_offsets))

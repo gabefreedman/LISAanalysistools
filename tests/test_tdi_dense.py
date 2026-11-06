@@ -21,6 +21,17 @@ def _dense_linear(t_k, Phi_k):
     return C
 
 
+def _has_dense_wrap():
+    """Whether the compiled CPU backend carries ``TDDenseTDIWaveformWrap`` (TDDenseTDIonTheFly
+    refuses to build without it)."""
+    try:
+        import lisatools
+
+        return lisatools.get_backend("cpu").TDDenseTDIWaveformWrap is not None
+    except Exception:
+        return False
+
+
 class TDDenseTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -90,6 +101,65 @@ class TDDenseTest(unittest.TestCase):
                 rel = np.max(np.abs(sig_d[s, ch] - sig_o[s, ch])) / np.max(np.abs(sig_o[s, ch]))
                 self.assertLess(rel, 1e-9, f"sub {s} ch {ch}: rel {rel:.2e}")
 
+    # the plunge chunk's window grid of EMRIDirectWDM._dense_td: Nf x Nt_sub samples of dt
+    NF_W, NT_SUB_W, DT_W = 32, 64, 10.0
+
+    def _gen_and_two_items(self):
+        """An EMRIDirectWDM on the dense response and the fixture's two templates as its items,
+        ``(dense inputs, (psi, lam, beta))`` (knots on the FEW clock, origin ``t_k[0]``)."""
+        from types import SimpleNamespace
+
+        from lisatools.domains import WDMSettings
+        from lisatools.sources.emri.wdm_direct import EMRIDirectWDM
+
+        table = SimpleNamespace(fdot_vals=np.array([-1.0, 1.0]), INTERP_METHOD="spline")
+        gen = EMRIDirectWDM(None, table, WDMSettings(self.NF_W, 256, self.DT_W, force_backend="cpu"),
+                            orbits=self.orbits, tdi_config=self.tdi, t_start=self.t_k[0],
+                            data_t0=self.t_k[0] + 3000.0, response="dense")
+        K = self.t_k.size
+        C = _dense_linear(self.t_k, self._fund(self.t_k))
+        items = []
+        for b, hs in enumerate(self.harm):
+            mkn = np.array([h[0] for h in hs], dtype=np.int32)
+            are, aim = np.zeros((len(hs), K - 1, 4)), np.zeros((len(hs), K - 1, 4))
+            for s, (_, c) in enumerate(hs):
+                are[s, :, 0], aim[s, :, 0] = c.real, c.imag
+            items.append(((self.t_k - self.t_k[0], C, mkn, are, aim), tuple(self.params[b, 1:])))
+        return gen, items[0], items[1]
+
+    def _window_grid(self, n0):
+        """Absolute sample times of the plunge-chunk window that starts at layer ``n0``."""
+        return self.t_k[0] + 3000.0 + (n0 * self.NF_W + np.arange(self.NF_W * self.NT_SUB_W)) * self.DT_W
+
+    @unittest.skipUnless(_has_dense_wrap(), "the compiled backend has no TDDenseTDIWaveformWrap")
+    def test_dense_td_batches_items_with_their_own_grids(self):
+        from lisatools.utils.utility import asnumpy
+
+        gen, item0, item1 = self._gen_and_two_items()           # two templates of the fixture's source
+        ts0, ts1 = self._window_grid(n0=0), self._window_grid(n0=64)
+        a = gen._dense_td([item0], ts0[None, :], sum_subs=True, stop_taper=120.0)
+        b = gen._dense_td([item1], ts1[None, :], sum_subs=True, stop_taper=120.0)
+        ab = gen._dense_td([item0, item1], np.stack([ts0, ts1]), sum_subs=True, stop_taper=120.0)
+        np.testing.assert_allclose(asnumpy(ab[0]), asnumpy(a[0]), rtol=1e-12, atol=1e-15)
+        np.testing.assert_allclose(asnumpy(ab[1]), asnumpy(b[0]), rtol=1e-12, atol=1e-15)
+
+    @unittest.skipUnless(_has_dense_wrap(), "the compiled backend has no TDDenseTDIWaveformWrap")
+    def test_dense_tail_batches_a_rows_windows_into_one_item(self):
+        """The plunge tail gives each row ONE kernel item, the grids of its windows end to end
+        (overlapping windows: the times are not monotonic): each pair's series == that window
+        evaluated as its own item (the per-(row, window) form it replaced), to 1e-12."""
+        from lisatools.utils.utility import asnumpy
+
+        gen, item0, item1 = self._gen_and_two_items()
+        t0 = self.t_k[0] + 3000.0
+        tail = gen._dense_tail_fn({0: item0, 1: item1}, t0, self.NF_W, self.NT_SUB_W, self.DT_W)
+        pairs = [(0, 0, 16, 46), (0, 30, 16, 46), (1, 64, 16, 48)]
+        got = asnumpy(tail(pairs))
+        per = asnumpy(gen._dense_td([item0, item0, item1], np.stack([self._window_grid(n0) for _, n0, _, _ in pairs]),
+                                    sum_subs=True, stop_taper=tail.taper))
+        self.assertEqual(got.shape, per.shape)
+        np.testing.assert_allclose(got, per, rtol=1e-12, atol=1e-15 * np.abs(per).max())
+
     def test_zero_outside_trajectory(self):
         """Delayed times past the last knot contribute nothing (plunge handled without a feed extension)."""
         from lisatools.response.tdionfly import TDDenseTDIonTheFly
@@ -138,6 +208,28 @@ class TDDenseTest(unittest.TestCase):
                                    orbits=self.orbits, force_backend="cpu")
         ch = np.real(np.asarray(dense.channels(self.params[1:], sum_subs=True, stop_taper=stop_taper))[0])
         return t, ch, np.cumsum(ch.sum(axis=0)) * step, t_k[-1]
+
+    def test_read_only_single_row_time_grid(self):
+        """A one-row time grid that is a read-only broadcast view (``EMRIDirectWDM._dense_td``
+        broadcasts a shared 1-D grid to ``(n, N)``; with n = 1 ``ascontiguousarray`` keeps the
+        view) must run: the nanobind binding refuses read-only arrays."""
+        from lisatools.response.tdionfly import TDDenseTDIonTheFly
+
+        K = 41
+        t_k = self.t_k[0] + np.linspace(0.0, 2 * 86400.0, K)
+        Phi_k = 0.3 + (t_k - t_k[0])[:, None] * np.array([2 * np.pi * 5.5e-3, 0.0, 0.0])[None, :]
+        are = np.zeros((1, K - 1, 4))
+        are[0, :, 0] = 1.0
+        t = t_k[-1] + np.arange(-6000.0, 3000.0, 10.0)
+        t_ro = np.broadcast_to(t[None, :], (1, t.size))
+        self.assertFalse(t_ro.flags.writeable)
+        out = {}
+        for name, grid in (("writable", t[None].copy()), ("read-only", t_ro)):
+            dense = TDDenseTDIonTheFly(grid, np.array([0, 1]), np.array([[2, 0, 0]]), t_k[None], np.array([K]),
+                                       _dense_linear(t_k, Phi_k)[None], are, np.zeros_like(are),
+                                       tdi_config=self.tdi, orbits=self.orbits, force_backend="cpu")
+            out[name] = np.asarray(dense.channels(self.params[1:], sum_subs=True, stop_taper=120.0))
+        np.testing.assert_array_equal(out["read-only"], out["writable"])
 
     def test_stop_taper_removes_the_sampled_stop_area(self):
         """A source that stops abruptly has no net T-like area (every delay term is the same truncated
