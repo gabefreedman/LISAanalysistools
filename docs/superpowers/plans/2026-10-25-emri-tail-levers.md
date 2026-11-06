@@ -245,3 +245,17 @@ BACKEND=cuda13x DAYS="720" CHUNKS="1,8" ROWS=32 TAIL_SKIP_PX=100 OUT=lever_skip 
 Read the `[durations] code:` line first: it must name a commit on this branch
 (af9b0046 or later).  The 2026-10-25 run did not, and its numbers were not
 what their directory names said.
+
+### Finished (2026-11-05)
+
+The H100 runs at the branch head are in: `docs/emri-direct-wdm.md`, "H100 results at the branch
+head (11-05)". In short: batching and `NT_SUB=auto` keep the mismatch vs production at 3.71e-6
+(thr 1e-5) and the tail skip does not (1.33e-4, stays 0). The 8-per-call loss (follow-up 4) was
+not the warm-up but the plan phase's per-(row, harmonic) `subset_track` copies; `TrackAtPixels`
+removes them (85f4144d), bit-identical, and 8 per call goes 341 -> 260 ms per template at the
+defaults, 216 with both knobs on. Also fixed on the way: `tools/wtenv` with the newer
+scikit-build-core finder name (9a2581c6) and a read-only one-row time grid that the CPU dense
+kernel refused (18a1cac4; the three CPU `PlungeTailTest` errors were this, not a stale build).
+Follow-ups 1-3 and 5 are not started. The gate script could not run on the cluster (its TOF
+reference fails in `EMRITDIonFly.run_response`); the speed script's own vs-production and
+vs-data mismatch replaced it.

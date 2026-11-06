@@ -456,6 +456,37 @@ length passes if those stay within 2x of the 128 values; the default then change
 word (`EMRI_DIRECT_NT_SUB` exported in `scripts/flagship/launcher.sh.in`, then
 `python scripts/flagship/build.py`).
 
+### H100 results at the branch head (11-05): batching, auto window, tail skip, plan fix
+
+One H100 NVL, EMRI 1, 720 d, thr 1e-5 (the production default), the production path
+(sparse grid / kernel lookup), 32 rows, `scripts/emri/emri_direct_stage_timing.py`; ms per
+template and the noise-weighted mismatch vs production (`mm prod`) and vs source 1's mojito data
+(`mm data`; production itself 2.10e-5):
+
+| configuration | single | 1/call | 8/call | mm prod | mm data |
+|---|---|---|---|---|---|
+| production wrap | 385 | | | -- | 2.10e-5 |
+| before (code 18a1cac4), defaults | 289 | 281 | 341 | 3.71e-6 | 2.40e-5 |
+| plan fix (85f4144d), defaults | 261 | 254 | 260 | 3.71e-6 | 2.40e-5 |
+| + `EMRI_DIRECT_CHUNK_BATCH=1` | 258 | 254 | 230 | 3.71e-6 | 2.40e-5 |
+| + `EMRI_DIRECT_NT_SUB=auto` (eff 164 / 168) | 231 | 234 | 216 | 3.71e-6 | 2.40e-5 |
+| `TAIL_SKIP_PX=100` (before the plan fix) | 215 | 215 | 278 | **1.33e-4** | **1.47e-4** |
+
+* **The 8-per-call loss was the plan phase, not the warm-up.** `[walls]` before the fix: plan 38
+  ms per row single, 112 at 8 per call (89 with `CHUNK_BATCH=0`); the first call was no slower
+  than the rest. GC off changed nothing; cProfile put it in `subset_track`: one six-array copy per
+  (row, harmonic), all held for the batch, of which only `fdot` / `fddot` and the length are read.
+  `TrackAtPixels` (a lazy view) replaces it in `_chunk_rows_batch`: plan 16 ms per row at every
+  batch size, the templates bit-identical (`TrackAtPixelsTest`, the mixed-batch parity test).
+* **Batching** (`CHUNK_BATCH=1`) now pays: 8 per call beats 1 per call; batched-vs-alone parity
+  2-14e-11 relative, mm 0.
+* **Auto window** halves the tail kernel (59 -> 32 ms; 64 -> 32 windows) at a larger transform
+  (5.8 -> 11.5-12.7 ms, 164-168-layer windows); net -6 to -10 %, mm unchanged.
+* **Tail skip stays 0**: 36x the mismatch vs production, logL vs data -0.46 against -0.076 (at SNR
+  56; the bias grows as SNR^2).
+* Still the largest phase: `capture` (FEW trajectory and amplitudes per row), 140-150 ms per row
+  at 1e-5, about 2/3 of a template. Untested: other EMRIs, other durations, 2 per call.
+
 ## In the global fit: `EMRI_LIKELIHOOD=direct` (10-02; the 6-month launcher default and, through `auto`, the library default since 10-03)
 
 `emri_pe` becomes `EMRIDirectLikeMove` (`globalfit/moves/emridirectmove.py`), built by
@@ -499,7 +530,8 @@ choreography is untouched, only the scoring changes.
   e, splice f, plan p, alloc x, total g (unattributed u); response points padded P (rows
   p_min..p_max); per call: first c1 ms, rest median c2 ms`. The phase whose per-row cost grows from
   the single call to the 8-per-call batch is where the batch loses (the 10-25 H100 run: 181 vs 161
-  ms per template at 1e-3, 327 vs 279 at 1e-5). Laptop, spline path, the wiring fixture (2 chunk
+  ms per template at 1e-3, 327 vs 279 at 1e-5; found and fixed 11-05: the plan phase, see "H100
+  results at the branch head"). Laptop, spline path, the wiring fixture (2 chunk
   rows + 1 lookup row): the phases add up to 99.8-99.9 % of the total.
 * **Template generation follows (10-03).** In direct mode the engine's EMRI template generator
   (`SourceSignalGen`: residual rebuilds at load, the move's expose/fold through the containers'
