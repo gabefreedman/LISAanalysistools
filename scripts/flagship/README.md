@@ -29,7 +29,7 @@ tests/test_flagship_launchers.py   the guards (see below)
 | 9mo | 270 | 6480 | 180 | 60 | 20000 / 4096 / 16384 | 2,5,7,12,16,18 | the LIVE 6mo v9 (`gf_prod_6mo_v9_4gpu`) |
 | 12mo | 360 | 8640 | 240 | 60 | 20000 / 4096 / 16384 | 0,2,3,4,5,7,9,10,12,15,16,18 | 9mo (`gf_prod_9mo_v9`) |
 | 18mo | 540 | 12960 | 360 | 90 | 25000 / 2048 / 8192 | + 6, 13, 19 | flagship 12mo |
-| 24mo | 720 | 17280 | 480 | 120 | 25000 / 2048 / 8192 | all 20 | flagship 18mo |
+| 24mo | 720 | 17280 | 480 | 120 | 25000 / 2048 / 8192 | all 20 | flagship 12mo (18mo never run) |
 
 `python scripts/flagship/build.py --list` prints the resolved table. Every
 rule (grid, stride, crop guard, the two-week MBHB rule, the capacity values'

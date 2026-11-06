@@ -492,7 +492,10 @@ class PerRunValuesTest(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 class ParentChainTest(unittest.TestCase):
-    """3mo -> 6mo -> 9mo -> 12mo -> 18mo -> 24mo: each run reads the previous one."""
+    """3mo -> 6mo -> 9mo -> 12mo -> {18mo, 24mo}: each run reads its parent.
+
+    The 24mo reads the 12mo directly (user ruling 2026-11-05: the 18mo was
+    never run)."""
 
     @classmethod
     def setUpClass(cls):
@@ -508,7 +511,20 @@ class ParentChainTest(unittest.TestCase):
         self.assertEqual(fr.RUNS["12mo"].parent.mbhb_ids, fr.RUNS["9mo"].mbhb_ids)
         self.assertEqual(fr.RUNS["12mo"].parent.days, fr.RUNS["9mo"].days)
         self.assertEqual(fr.RUNS["18mo"].parent, "12mo")
-        self.assertEqual(fr.RUNS["24mo"].parent, "18mo")
+        self.assertEqual(fr.RUNS["24mo"].parent, "12mo")
+
+    def test_the_24mo_warm_starts_from_the_12mo_store(self):
+        e = self.ex["24mo"]
+        store = "/shared/data/global_fit_output/gf_prod_12mo_flagship/gf_prod_12mo_testing.h5"
+        self.assertEqual(e["GF_SEED_STORE"], store)
+        self.assertEqual(e["GB_WARM_START_SOURCE_STORE"], store)
+        self.assertEqual(int(e["GB_WARM_START_SOURCE_TOBS"]), 360 * 86400)
+        self.assertTrue(e["GB_WARM_START_COMPONENTS"].endswith(
+            "/warmstart/gf_prod_12mo_flagship_refereed.npz"))
+        self.assertEqual(e["MBH_SOURCE_WARM_START_IDS"], self.ex["12mo"]["MBHB_IDS"])
+        self.assertEqual(e["GB_MIN_FREQ"], "2.5e-4")
+        # no export of the 24mo still reads anything of the never-run 18mo
+        self.assertEqual([k for k, v in e.items() if "18mo" in v], [])
 
     def test_every_parented_run_reads_its_parent(self):
         for name in PARENTED:
@@ -577,8 +593,7 @@ class ParentChainTest(unittest.TestCase):
             "9mo": ["gf_prod_6mo_v9_4gpu"],
             "12mo": ["gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
             "18mo": ["gf_prod_12mo_flagship", "gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
-            "24mo": ["gf_prod_18mo_flagship", "gf_prod_12mo_flagship", "gf_prod_9mo_v9",
-                     "gf_prod_6mo_v9_4gpu"],
+            "24mo": ["gf_prod_12mo_flagship", "gf_prod_9mo_v9", "gf_prod_6mo_v9_4gpu"],
         }
         for name, dirs in want.items():
             with self.subTest(run=name):

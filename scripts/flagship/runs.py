@@ -420,7 +420,13 @@ _add(Run(
     ),
 ))
 _add(Run(
-    name="24mo", days=720, parent="18mo",
+    # PARENT = the 12mo, NOT the 18mo (user ruling 2026-11-05): the 18mo was
+    # never run, so the 24mo goes straight from the 12mo. Every warm-start
+    # read (GB warm-start fit, psd/galfor pin) goes to the 12mo's own store
+    # gf_prod_12mo_flagship/gf_prod_12mo_testing.h5, read in place (the 12mo
+    # job is stopped for good, so no copy is needed). Source leaves start at
+    # truth regardless (SOURCE_WARM_START_STORE empty since 2026-10-22).
+    name="24mo", days=720, parent="12mo",
     gb_nleaves_max=25000, gb_n_subbands=2048, gb_rj_inmodel_chunk=8192,
     edge_crop_wavelets=120,
     # GB_MIN_FREQ 5.5e-4 -> 2.5e-4, as in the 12mo v1.2.8dev restart (user
