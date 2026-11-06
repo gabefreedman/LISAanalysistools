@@ -95,6 +95,7 @@ def tokens(run: "_runs.Run") -> dict:
         "JOB_NAME": run.resolved_job_name, "LOG_STEM": run.resolved_log_stem,
         "STORE_DIR": run.store_dir, "BASE_FILE_NAME": run.base_file_name,
         "NGPUS_DEFAULT": str(run.ngpus_default),
+        "TIME_LIMIT": run.time_limit,
         "RUN_EXTRA_EXPORTS": "\n".join(run.extra_exports) if run.extra_exports
         else "# (none for this run)",
     }

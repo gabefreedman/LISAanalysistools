@@ -527,6 +527,10 @@ class ParentChainTest(unittest.TestCase):
         # and a whole-grid stage-B budget
         self.assertEqual(e["GB_PE_RJ_FSTAT_RESIDUAL_SPLIT"], "1")
         self.assertEqual(e["FSTAT_STAGEB_TOTAL_MAX_GB"], "12")
+        # one continuous job (2026-11-06); every other run keeps 24 h
+        for name in ORDER:
+            want = "UNLIMITED" if name == "24mo" else "24:00:00"
+            self.assertRegex(_text(name), rf"(?m)^#SBATCH --time={want}\b")
         # no export of the 24mo still reads anything of the never-run 18mo
         self.assertEqual([k for k, v in e.items() if "18mo" in v], [])
 

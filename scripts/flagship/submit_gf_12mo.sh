@@ -71,7 +71,7 @@
                                   # passes --ntasks explicitly on `exec sbatch`
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=0                   # whole-node memory
-#SBATCH --time=24:00:00
+#SBATCH --time=24:00:00   # per run (runs.py Run.time_limit)
 #SBATCH --output=/shared/data/global_fit_output/gf12mo_flagship_%j.log     # combined stdout+stderr (captures [MAXLOGL]/[BENCH])
 # ----------------------------------------------------------------------------
 
