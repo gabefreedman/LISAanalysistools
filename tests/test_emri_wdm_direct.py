@@ -6,6 +6,7 @@ retrograde sign(xI0) on Phi_phi, the backwards-integration knot offset, and the
 exact -m partner (-1)^l Y_{l,-m} conj(A) e^{+i Phi}.
 """
 
+import dataclasses
 import unittest
 import weakref
 from types import SimpleNamespace
@@ -159,6 +160,58 @@ class HandoffTest(unittest.TestCase):
     def test_no_trip_for_slow_source(self):
         tr = self._track(1e-11, 1e-19)
         self.assertEqual(self.wd.handoff_pixel(tr, self.layer_dt, self.layer_df, 3.086e-7), 100)
+
+
+class TrackAtPixelsTest(unittest.TestCase):
+    """``TrackAtPixels``: the batched plan's lazy stand-in for ``subset_track`` (it gathers a
+    field only when read and knows its length without a gather), so the handoff of every
+    (row, harmonic) no longer copies six arrays that are never read."""
+
+    def setUp(self):
+        from lisatools.sources.emri import wdm_direct as wd
+
+        self.wd = wd
+        self.layer_dt, self.layer_df = 3600.0, 1.0 / 7200.0
+        rng = np.random.default_rng(3)
+        P = 400
+        t = np.arange(P) * self.layer_dt
+        self.track = wd.HarmonicTrack((2, 2, 0, 0), t, rng.normal(size=P) + 1j * rng.normal(size=P),
+                                      rng.normal(size=P), 1e-3 + 1e-6 * rng.random(P),
+                                      np.linspace(0.0, 1e-6, P), np.zeros(P))
+        self.pos = np.sort(rng.choice(P, size=250, replace=False))
+
+    def test_fields_equal_subset_track(self):
+        view = self.wd.TrackAtPixels(self.track, self.pos)
+        ref = self.wd.subset_track(self.track, self.pos)
+        self.assertEqual(view.lmkn, ref.lmkn)
+        for name in ("t", "amp", "phase", "f", "fdot", "fddot"):
+            np.testing.assert_array_equal(getattr(view, name), getattr(ref, name), err_msg=name)
+
+    def test_length_without_a_gather(self):
+        view = self.wd.TrackAtPixels(self.track, self.pos)
+        self.assertEqual(self.wd.track_size(view), self.pos.size)
+        self.assertEqual(self.wd.track_size(self.track), self.track.t.size)
+        self.assertIs(view.track, self.track)          # a reference, not a copy
+
+    def test_handoff_equals_subset_track(self):
+        tau = self.wd.WDM_HALF_SUPPORT_LAYERS * self.layer_dt
+        base = self.track
+        cases = {
+            "fdot trip": base,
+            "curvature trip": dataclasses.replace(
+                base, fdot=np.zeros_like(base.fdot),
+                fddot=np.where(np.arange(base.t.size) >= 300, 0.2 / ((np.pi / 3) * tau ** 3), 0.0)),
+            "no trip": dataclasses.replace(base, fdot=np.full_like(base.fdot, 1e-11),
+                                           fddot=np.full_like(base.fddot, 1e-19)),
+        }
+        for name, tr in cases.items():
+            with self.subTest(name):
+                want = self.wd.handoff_pixel(self.wd.subset_track(tr, self.pos), self.layer_dt,
+                                             self.layer_df, 3.086e-7)
+                got = self.wd.handoff_pixel(self.wd.TrackAtPixels(tr, self.pos), self.layer_dt,
+                                            self.layer_df, 3.086e-7)
+                self.assertEqual(got, want)
+        self.assertEqual(want, self.pos.size)          # the no-trip case returns the length
 
 
 class HandoffBoundTest(unittest.TestCase):

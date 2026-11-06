@@ -208,7 +208,7 @@ def handoff_pixel(track, layer_dt, layer_df, fdot_axis_max, tol_rad=0.1):
     cubic = (np.pi / 3.0) * np.abs(np.asarray(track.fddot)) * tau ** 3
     trip = (cubic > tol_rad) | (np.abs(np.asarray(track.fdot)) > fdot_axis_max)
     idx = np.flatnonzero(trip)
-    return int(idx[0]) if idx.size else int(np.asarray(track.t).size)
+    return int(idx[0]) if idx.size else track_size(track)
 
 
 # TODO check: keep/remove/document -- not reached by the 9mo/12mo runs (accumulate_harmonic_batch plans its chunks with tail_chunk_plan); only caller is tests/test_wdm_chunk_splice.py
@@ -650,7 +650,7 @@ def accumulate_harmonic_batch(acc, table, tracks, tracer, n_ok, tail_td, *, Nf, 
         if tracks is None:
             k_h = P_sub.copy()
         else:
-            short = [s for s, tr in enumerate(tracks) if tr is not None and np.size(tr.t) < P_sub[s]]
+            short = [s for s, tr in enumerate(tracks) if tr is not None and track_size(tr) < P_sub[s]]
             if short:   # its "never trips" index would read as a handoff inside the row
                 raise ValueError(f"tracks of subs {short} are shorter than their rows' pixels (pass row_t_end)")
             k_h = np.array([P if tr is None else handoff_pixel(tr, layer_dt, layer_df, fdot_axis_max)
@@ -1404,6 +1404,46 @@ def track_rows(H, idx):
 def subset_track(tr, pos):
     """A HarmonicTrack restricted to sample positions ``pos`` (needs ``f``, ``fdot``, ``fddot``)."""
     return HarmonicTrack(tr.lmkn, tr.t[pos], tr.amp[pos], tr.phase[pos], tr.f[pos], tr.fdot[pos], tr.fddot[pos])
+
+
+class TrackAtPixels:
+    """``subset_track(track, pos)`` without the copies: each field is gathered at ``pos`` only
+    when read, and :func:`track_size` gives the length without a gather. The batched plunge-chunk
+    plan reads only ``fdot`` / ``fddot`` (:func:`handoff_pixel`) and the length; copying all six
+    arrays of every (row, harmonic) and holding them for the whole batch cost ~0.25 ms per
+    harmonic and grew with the rows per call (720 d, thr 1e-5: plan 38 -> 112 ms per row at
+    8 per call). Same values as :func:`subset_track`, so the same handoff.
+
+    Args:
+        track (HarmonicTrack): The full track (referenced, not copied).
+        pos (np.ndarray): Sample positions into ``track``.
+    """
+
+    __slots__ = ("track", "pos")
+
+    def __init__(self, track, pos):
+        self.track = track
+        self.pos = pos
+
+    @property
+    def lmkn(self):
+        return self.track.lmkn
+
+    def __len__(self):
+        return int(np.size(self.pos))
+
+    def __getattr__(self, name):
+        if name in ("t", "amp", "phase", "f", "fdot", "fddot"):
+            return getattr(self.track, name)[self.pos]
+        raise AttributeError(name)
+
+
+def track_size(track):
+    """The number of samples of a :class:`HarmonicTrack` or a :class:`TrackAtPixels` (the latter
+    without gathering ``t``)."""
+    if isinstance(track, TrackAtPixels):
+        return len(track)
+    return int(np.size(track.t))
 
 
 class EMRIDirectWDM:
@@ -2417,7 +2457,7 @@ class EMRIDirectWDM:
                 pos = np.searchsorted(n_tr, n_r)
                 assert np.array_equal(n_tr[pos], n_r)
                 assert len(tp) == ns, (len(tp), ns)
-                tracks += [subset_track(t, pos) for t in tp]
+                tracks += [TrackAtPixels(t, pos) for t in tp]   # lazy: only fdot / fddot are read
             if be is not None:
                 lookup = self._lookup_fn(be, srcs[rows[0]][0], out_arr, sub_row.astype(np.int32), n_ok, m_lo)
             else:
