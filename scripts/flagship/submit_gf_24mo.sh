@@ -27,7 +27,7 @@
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_18mo_flagship:/shared/data/global_fit_output/gf_prod_12mo_flagship:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
 #   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4
-#   EXTRA EXPORTS (level 2): 2 line(s) at the hook.
+#   EXTRA EXPORTS (level 2): 4 line(s) at the hook.
 #
 # NOTES:
 #   All 20 catalogue MBHBs merge inside 720 d (the last, 14, at 712.7 d).
@@ -5720,6 +5720,8 @@ PYEOF
 # place through Run.overrides instead (build.py rewrites that export line).
 export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"
 export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"
+export EMRI_DIRECT_CHUNK_BATCH=${EMRI_DIRECT_CHUNK_BATCH:-1}
+export EMRI_DIRECT_NT_SUB=${EMRI_DIRECT_NT_SUB:-auto}
 
 # ============================================================================
 # FRESH-RUN GUARD (2026-08-15). This submission starts a NEW run in a NEW

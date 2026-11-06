@@ -484,6 +484,9 @@ template and the noise-weighted mismatch vs production (`mm prod`) and vs source
   (5.8 -> 11.5-12.7 ms, 164-168-layer windows); net -6 to -10 %, mm unchanged.
 * **Tail skip stays 0**: 36x the mismatch vs production, logL vs data -0.46 against -0.076 (at SNR
   56; the bias grows as SNR^2).
+* The flagship 24-month launcher exports `EMRI_DIRECT_CHUNK_BATCH=1` and `EMRI_DIRECT_NT_SUB=auto`
+  (`scripts/flagship/runs.py`, 11-05; an explicit env value still wins); the library defaults and
+  every other launcher keep `0` / `128`.
 * Still the largest phase: `capture` (FEW trajectory and amplitudes per row), 140-150 ms per row
   at 1e-5, about 2/3 of a template. Untested: other EMRIs, other durations, 2 per call.
 

@@ -432,6 +432,14 @@ _add(Run(
     extra_exports=(
         'export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"',
         'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"',
+        # EMRI direct template (user request 2026-11-05): plunge-chunk rows
+        # batched per call + one auto-length window per tail. H100, EMRI 1,
+        # 720 d, thr 1e-5: 260 -> 216 ms per template at 8 per call (eigen
+        # sweeps), 254 -> 234 at 1 per call, mm vs production unchanged at
+        # 3.71e-6 (docs/emri-direct-wdm.md, "H100 results at the branch
+        # head"). The library default (0 / 128) stays for every other run.
+        'export EMRI_DIRECT_CHUNK_BATCH=${EMRI_DIRECT_CHUNK_BATCH:-1}',
+        'export EMRI_DIRECT_NT_SUB=${EMRI_DIRECT_NT_SUB:-auto}',
     ),
     notes=(
         "All 20 catalogue MBHBs merge inside 720 d (the last, 14, at 712.7 d).",
