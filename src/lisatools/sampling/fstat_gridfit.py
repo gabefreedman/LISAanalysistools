@@ -2887,6 +2887,54 @@ def run_stacked_stage_b(call_fstat: Callable, peaks, *, xp, Tobs: float,
         else:
             alpha_ax_g.append(np.linspace(0.0, 2 * np.pi, n_alpha))
             sd_ax_g.append(np.linspace(-1.0, 1.0, n_sd))
+
+    # ---- TOTAL BYTE BUDGET (2026-11-05, 24mo prep) ----------------------
+    # The per-group budget above stops at 64 sky nodes, so it cannot bound
+    # the WHOLE grid: the 12mo GB-free fit (11-02) came to 53.8 GB raw over
+    # 9 groups, and the same peak list sizes ~1.9x larger at 720 d. With
+    # FSTAT_STAGEB_TOTAL_MAX_GB > 0 an over-budget fit drops boxes, lowest
+    # F per GB first (a cheap low-f box costs ~1/300 of a high-f one, so
+    # the faint expensive boxes go before any cheap one), and re-sizes from
+    # scratch on the kept set (groups and their sky depend on the set). The
+    # dropped peaks get no F-stat birth mass THIS epoch only; the comb /
+    # floor / prior / warm births still cover their bands. 0 = off (default:
+    # every existing run is unchanged).
+    _tot_max_gb = float(os.environ.get("FSTAT_STAGEB_TOTAL_MAX_GB", "0") or 0.0)
+    if _tot_max_gb > 0:
+        cost = np.empty(K)
+        for gi in range(n_groups):
+            a, b = int(g_edges[gi]), int(g_edges[gi + 1])
+            cost[a:b] = (n_f0 * int(n_req[a:b].max()) * len(alpha_ax_g[gi])
+                         * len(sd_ax_g[gi]) * 8 / 1e9)
+        total = float(cost.sum())
+        if total > _tot_max_gb and K <= 1:
+            logger.warning(
+                "[stageB] grid %.4g GB > FSTAT_STAGEB_TOTAL_MAX_GB %.4g GB "
+                "with a single peak box left; fitting it anyway.", total,
+                _tot_max_gb)
+        elif total > _tot_max_gb:
+            value = np.clip(peaks[:, 1], 0.0, None) / cost
+            order = np.argsort(-value, kind="stable")       # best first
+            keep_n = int(np.searchsorted(np.cumsum(cost[order]), _tot_max_gb,
+                                         side="right"))
+            keep_n = max(1, min(keep_n, K - 1))             # always progress
+            keep_idx = np.sort(order[:keep_n])
+            logger.warning(
+                "[stageB] grid %.4g GB > FSTAT_STAGEB_TOTAL_MAX_GB %.4g GB: "
+                "keeping %d of %d peak boxes (lowest F per GB dropped; kept "
+                "F >= %.3g, dropped F <= %.3g) and re-sizing.", total,
+                _tot_max_gb, keep_n, K,
+                float(np.min(peaks[keep_idx, 1])),
+                float(np.max(np.delete(peaks[:, 1], keep_idx))))
+            return run_stacked_stage_b(
+                call_fstat, peaks[keep_idx], xp=xp, Tobs=Tobs,
+                band_edges_hz=band_edges_hz, mc_lims=mc_lims,
+                ratio_max=ratio_max, cache_path=cache_path,
+                fingerprint_extra=fingerprint_extra, epoch=epoch,
+                sweep_runner=sweep_runner)
+        else:
+            logger.info("[stageB] grid %.4g GB within FSTAT_STAGEB_TOTAL_MAX_GB "
+                        "%.4g GB (%d boxes).", total, _tot_max_gb, K)
     # The flat alpha_ax/sd_ax fields (spec fields, npz keys, the legacy
     # single-group proposal) can only carry ONE sky grid, so from here they
     # mean GROUP 0. Say so when the groups actually differ: several scripts

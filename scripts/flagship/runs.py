@@ -432,10 +432,26 @@ _add(Run(
     # GB_MIN_FREQ 5.5e-4 -> 2.5e-4, as in the 12mo v1.2.8dev restart (user
     # request 2026-11-02: keep the lower f0 prior; same Nf/dt so the same
     # edges: band_edges[0] 0.27778 mHz, f0 prior from 0.29514 mHz).
-    overrides={"GB_MIN_FREQ": "2.5e-4"},
+    #
+    # GB_PE_RJ_FSTAT_RESIDUAL_SPLIT 0.9 -> 1 (user ruling 2026-11-05, as the
+    # 12mo ran full_pe): drop the GB-free galaxy grid move (rj_fstat_pe). Its
+    # one-time fit at full_pe entry came to 53.8 GB of raw grid on the 12mo
+    # (52,345 boxes, 9 groups, log 2026-11-02 20:31) and ran the GPU out of
+    # memory (job 850); the same peak list sizes ~1.9x larger at 720 d.
+    # full_pe keeps the live-residual F-stat move (~1 GB grids on the 12mo).
+    overrides={"GB_MIN_FREQ": "2.5e-4", "GB_PE_RJ_FSTAT_RESIDUAL_SPLIT": "1"},
     # monitor page (user request 2026-11-02): plain title, version on the
     # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
     extra_exports=(
+        # STAGE-B WHOLE-GRID BUDGET (user ruling 2026-11-05): the per-group
+        # budget stops at 64 sky nodes, so nothing bounded the whole grid. A
+        # 19.6k-peak search epoch projects to 36 GB raw at 720 d (19 GB at
+        # 360 d; gf24mo_prep/fstat_stageb_memory_projection.py), and the
+        # device holds 1-2x raw on top of a 38-53 GB baseline. Over 12 GB the
+        # fit drops boxes lowest F-per-GB first (faint high-f ones go first;
+        # cheap low-f boxes stay) for that epoch only. Raise on the launch
+        # line if the first epochs log "[stageB] grid ... within" with room.
+        'export FSTAT_STAGEB_TOTAL_MAX_GB=${FSTAT_STAGEB_TOTAL_MAX_GB:-12}',
         'export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"',
         'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"',
         # EMRI direct template (user request 2026-11-05): plunge-chunk rows
