@@ -125,8 +125,7 @@ class Run:
     edge_crop_wavelets: int
     ngpus_default: int = 4
     #: SLURM ``--time`` of the job (``#SBATCH`` header). 24 h everywhere
-    #: except the 24mo, which runs as ONE continuous job (user ruling
-    #: 2026-11-06; gpu-80-ondemand's limit is infinite).
+    #: except the 24mo (48 h, user ruling 2026-11-06).
     time_limit: str = "24:00:00"
     store_dirname: typing.Optional[str] = None   # default gf_prod_<name>_<SERIES>
     job_name: typing.Optional[str] = None        # default gf<name>_<SERIES>
@@ -433,11 +432,9 @@ _add(Run(
     name="24mo", days=720, parent="12mo",
     gb_nleaves_max=25000, gb_n_subbands=2048, gb_rj_inmodel_chunk=8192,
     edge_crop_wavelets=120,
-    # ONE continuous job, no daily stop/resubmit (user ruling 2026-11-06:
-    # "this run should ideally be continuous without stopping").
-    # gpu-80-ondemand (the NGPUS=4 default) has an infinite time limit;
-    # the NGPUS=2 spot partition is not meant for this run.
-    time_limit="UNLIMITED",
+    # 48 h per job (user ruling 2026-11-06), not the 24 h of the others.
+    # gpu-80-ondemand (the NGPUS=4 default) has an infinite partition limit.
+    time_limit="48:00:00",
     # GB_MIN_FREQ 5.5e-4 -> 2.5e-4, as in the 12mo v1.2.8dev restart (user
     # request 2026-11-02: keep the lower f0 prior; same Nf/dt so the same
     # edges: band_edges[0] 0.27778 mHz, f0 prior from 0.29514 mHz).
