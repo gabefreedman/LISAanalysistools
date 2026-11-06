@@ -523,6 +523,10 @@ class ParentChainTest(unittest.TestCase):
             "/warmstart/gf_prod_12mo_flagship_refereed.npz"))
         self.assertEqual(e["MBH_SOURCE_WARM_START_IDS"], self.ex["12mo"]["MBHB_IDS"])
         self.assertEqual(e["GB_MIN_FREQ"], "2.5e-4")
+        # 2026-11-05: no GB-free galaxy grid in full_pe (53.8 GB at 12mo, OOM)
+        # and a whole-grid stage-B budget
+        self.assertEqual(e["GB_PE_RJ_FSTAT_RESIDUAL_SPLIT"], "1")
+        self.assertEqual(e["FSTAT_STAGEB_TOTAL_MAX_GB"], "12")
         # no export of the 24mo still reads anything of the never-run 18mo
         self.assertEqual([k for k, v in e.items() if "18mo" in v], [])
 

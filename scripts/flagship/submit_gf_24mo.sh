@@ -26,8 +26,8 @@
 #     warm start copies its SNR > 10 leaves by catalogue id: MBHB 0,2,3,4,5,7,9,10,12,15,16,18, every EMRI / SOBHB; the monitor page overlays
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_12mo_flagship:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
-#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4
-#   EXTRA EXPORTS (level 2): 4 line(s) at the hook.
+#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1
+#   EXTRA EXPORTS (level 2): 5 line(s) at the hook.
 #
 # NOTES:
 #   All 20 catalogue MBHBs merge inside 720 d (the last, 14, at 712.7 d).
@@ -3635,7 +3635,7 @@ export GB_FSTAT_PEAK_MIN_SNR_PE_GB_FREE=6.5
 # whose yield did not decay over the 160 rows its grid aged, so the F-stat
 # share goes to the residual move (0.45 -> 0.405 residual / 0.045 galaxy);
 # warm 0.4 above, prior the remaining 0.15. 0 or 1 composes ONE F-stat move.
-export GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=${GB_PE_RJ_FSTAT_RESIDUAL_SPLIT:-0.9}
+export GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=${GB_PE_RJ_FSTAT_RESIDUAL_SPLIT:-1}
 # GB_FSTAT_FORCE_REFIT=1 on a launch line now refits BOTH PE grids (one new
 # epoch per root, the 3.5-h galaxy included) -- leave it off a PE resume.
 # WHICH WALKER A PE REFIT FITS (code default, NOT exported; user ruling
@@ -5718,6 +5718,7 @@ PYEOF
 # New knobs that exist for ONE run only land here, after every shared export
 # and the waveform preflights; a knob the base already exports is changed in
 # place through Run.overrides instead (build.py rewrites that export line).
+export FSTAT_STAGEB_TOTAL_MAX_GB=${FSTAT_STAGEB_TOTAL_MAX_GB:-12}
 export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"
 export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"
 export EMRI_DIRECT_CHUNK_BATCH=${EMRI_DIRECT_CHUNK_BATCH:-1}
