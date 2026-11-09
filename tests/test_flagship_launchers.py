@@ -527,6 +527,11 @@ class ParentChainTest(unittest.TestCase):
         # and a whole-grid stage-B budget
         self.assertEqual(e["GB_PE_RJ_FSTAT_RESIDUAL_SPLIT"], "1")
         self.assertEqual(e["FSTAT_STAGEB_TOTAL_MAX_GB"], "12")
+        # 2026-11-09: no per-epoch centre table (unread with DIST_BIRTH=0)
+        self.assertEqual(e["GB_FSTAT_CTR_MODE"], "unit")
+        self.assertEqual(e["GB_RJ_FSTAT_DIST_BIRTH"], "0")
+        self.assertEqual(e["GF_MONITOR_TITLE"], "CD1-L 24 month analysis")
+        self.assertEqual(e["GF_MONITOR_VERSION"], "v1.2.8dev")
         # 48 h jobs for the 24mo (2026-11-06); every other run keeps 24 h
         for name in ORDER:
             want = "48:00:00" if name == "24mo" else "24:00:00"

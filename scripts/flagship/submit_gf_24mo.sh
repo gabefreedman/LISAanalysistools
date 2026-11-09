@@ -26,7 +26,7 @@
 #     warm start copies its SNR > 10 leaves by catalogue id: MBHB 0,2,3,4,5,7,9,10,12,15,16,18, every EMRI / SOBHB; the monitor page overlays
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_12mo_flagship:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
-#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1
+#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1, GB_FSTAT_CTR_MODE=unit
 #   EXTRA EXPORTS (level 2): 5 line(s) at the hook.
 #
 # NOTES:
@@ -2849,7 +2849,7 @@ export GB_RJ_FSTAT_CTR_HOIST=1     # F-stat distance centers batched once per
 # drawable support; propose-time = nearest-node lookup (centers chain
 # 109-953 s -> ~0). Smear defaults 2.0 in epoch mode (covers <=100-
 # propose staleness + node mismatch); =unit restores the per-unit hoist.
-export GB_FSTAT_CTR_MODE=epoch
+export GB_FSTAT_CTR_MODE=unit
 # (GB_FSTAT_CTR_SMEAR is unset ON PURPOSE: a 1.5 pin would override the
 # epoch-mode 2.0 default, which is what covers the <=100-propose table
 # staleness. The smeared sigma feeds BOTH the draw and the densities,

@@ -445,7 +445,16 @@ _add(Run(
     # (52,345 boxes, 9 groups, log 2026-11-02 20:31) and ran the GPU out of
     # memory (job 850); the same peak list sizes ~1.9x larger at 720 d.
     # full_pe keeps the live-residual F-stat move (~1 GB grids on the 12mo).
-    overrides={"GB_MIN_FREQ": "2.5e-4", "GB_PE_RJ_FSTAT_RESIDUAL_SPLIT": "1"},
+    #
+    # GB_FSTAT_CTR_MODE epoch -> unit (user ruling 2026-11-09, at the job
+    # resubmit): skip the per-epoch F-stat centre table. It was a HEAD-ONLY
+    # sweep of ~903k nodes, 24.2 min every epoch (log epochs 21 and 22) with
+    # the other 3 compute ranks idle, and nothing read it: every consumer
+    # (birth/death centre lookups, replace ctr mode, per-unit hoist, audit)
+    # sits behind rj_fstat_dist_birth, and GB_RJ_FSTAT_DIST_BIRTH=0 here.
+    # Sampling unchanged; ~24 min of a 2.3 h gb_search_1 cycle saved.
+    overrides={"GB_MIN_FREQ": "2.5e-4", "GB_PE_RJ_FSTAT_RESIDUAL_SPLIT": "1",
+               "GB_FSTAT_CTR_MODE": "unit"},
     # monitor page (user request 2026-11-02): plain title, version on the
     # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
     extra_exports=(
