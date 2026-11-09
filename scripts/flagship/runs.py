@@ -459,7 +459,8 @@ _add(Run(
         # line if the first epochs log "[stageB] grid ... within" with room.
         'export FSTAT_STAGEB_TOTAL_MAX_GB=${FSTAT_STAGEB_TOTAL_MAX_GB:-12}',
         'export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"',
-        'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"',
+        # v1.2.8dev on the page stamp (user request 2026-11-09), as the 12mo
+        'export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-v1.2.8dev}"',
         # EMRI direct template (user request 2026-11-05): plunge-chunk rows
         # batched per call + one auto-length window per tail. H100, EMRI 1,
         # 720 d, thr 1e-5: 260 -> 216 ms per template at 8 per call (eigen

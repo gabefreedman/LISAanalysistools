@@ -3927,7 +3927,7 @@ ul {{ color:var(--dim); font-size:13px; }}
 </style>
 <header>
   <h1>{PAGE_H1}</h1>
-  <span class="stamp">{PAGE_VERSION_STAMP}{os.path.basename(RUN_DIR)} &middot; {datetime.now():%Y-%m-%d}</span>
+  <span class="stamp">{PAGE_VERSION_STAMP or (os.path.basename(RUN_DIR) + " &middot; ")}{datetime.now():%Y-%m-%d}</span>
   <span>{chips}</span>
 </header>
 <nav>
