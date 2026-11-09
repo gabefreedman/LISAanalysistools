@@ -538,7 +538,10 @@ RUN_LABEL, RUN_KIND = _run_identity(_base)
 # "the title is just 'CD1-L 12 month analysis' and the version is listed
 # somewhere but not front and center". GF_MONITOR_TITLE replaces the <h1> and
 # the browser-tab title; GF_MONITOR_VERSION goes on the small grey stamp line
-# under it, next to the store dir. Both unset -> the page is unchanged.
+# under it. Both unset -> the page is unchanged.
+# 2026-11-09 (user request): with a version set, the stamp reads
+# "version v1.2.8dev · <date>" -- the store-dir name (gf_prod_24mo_flagship)
+# is dropped; it is still on the page in the topline "store" row.
 import html as _html_mod  # noqa: E402  (``html`` is the page string below)
 _MON_TITLE = os.environ.get("GF_MONITOR_TITLE", "").strip()
 _MON_VERSION = os.environ.get("GF_MONITOR_VERSION", "").strip()
@@ -5138,6 +5141,15 @@ except Exception as e:
 # trajectories around them are the readout. REF is the last row BEFORE the
 # first nudge; everything in this block is relative to it.
 RATCHET = {}
+
+
+class _RatchetOff(RuntimeError):
+    """No gated-noise row in the store: GALFOR_RATCHET=0 (every flagship run
+    since 2026-10) or GB_SEARCH_LEGS off. The ratchet timeline and leaf-delta
+    panels are hidden by design then, so the Notes list does not carry them
+    as failures (2026-11-09)."""
+
+
 cap_fgA = cap_fgB = cap_fgC = ""
 cap_fgD = cap_fgE = ""      # filled by the ratchet scorecard after the truth set loads
 _fresh_store("ratchet panels")
@@ -5147,7 +5159,7 @@ try:
                    if _sa is not None else [])
     _gate_rows = [i for i, s in enumerate(SAVED_AFTER) if s == "noise_ratchet_search"]
     if not _gate_rows or _gate_rows[0] < 1:
-        raise RuntimeError("no row saved after the gated noise step (ratchet or legs off)")
+        raise _RatchetOff("no row saved after the gated noise step (ratchet or legs off)")
     REF = _gate_rows[0] - 1
     _gn = int(min(NIT, gal_cold_phys.shape[0]))
     from lisatools.stochastic import HyperbolicTangentGalacticForeground as _HTr
@@ -5241,12 +5253,14 @@ try:
         gal_ref=[float(v) for v in gal_cold[REF].mean(axis=0)],
         gal_last=[float(v) for v in gal_cold[_gn - 1].mean(axis=0)],
     )
+except _RatchetOff:
+    pass
 except Exception as _e:
     MISSING.append(f"ratchet timeline unavailable: {type(_e).__name__}: {_e}")
 
 try:
     if "REF" not in globals():
-        raise RuntimeError("no ratchet reference row")
+        raise _RatchetOff("no ratchet reference row")
     _chg = g["chain/gb"]
     _ing = g["inds/gb"]
     _cref = None
@@ -5371,6 +5385,8 @@ try:
         dband_lnl=({k: float(_dB[:, m].sum(axis=1).mean()) for k, m in _bins_m.items()}
                    if _dB is not None else {}),
     )
+except _RatchetOff:
+    pass
 except Exception as _e:
     MISSING.append(f"leaf-delta panel unavailable: {type(_e).__name__}: {_e}")
 
@@ -5744,6 +5760,12 @@ try:
                       np.bincount(_gi[_ing_g], weights=da[_ing_g], minlength=_fc_g.size)))
     if not _legs:
         raise RuntimeError("no leg with RJ traffic in the counters' window")
+    # 2026-11-09: a full store carries one leg per stored row (72 on the 24mo
+    # at row 71), but the colour list below holds 28 -> IndexError, and 70
+    # grouped bars per 0.5 mHz bin are unreadable anyway. Draw the newest
+    # RJB_MAX_LEGS legs, the same window a snapshot extract shows.
+    RJB_MAX_LEGS = 6
+    _legs = _legs[-RJB_MAX_LEGS:]
     fig, ax = plt.subplots(2, 1, figsize=(11.6, 7.0), sharex=True)
     _nl = len(_legs); _wd = 0.44 / _nl
     _pal = [CYAN, GREEN, AMBER, VIOLET, RED, FG, DIM] * 4
@@ -9615,7 +9637,7 @@ nav button {{ font-size:11px; padding:1px 8px; }}
 </style>
 <header>
   <h1>{PAGE_H1}</h1>
-  <span class="stamp">{PAGE_VERSION_STAMP}{os.path.basename(RUN_DIR)} &middot; {datetime.now():%Y-%m-%d}</span>
+  <span class="stamp">{PAGE_VERSION_STAMP or (os.path.basename(RUN_DIR) + " &middot; ")}{datetime.now():%Y-%m-%d}</span>
   <span>{chips}</span>
 </header>
 <nav>
@@ -9702,7 +9724,7 @@ cos&nbsp;q<sub>S</sub>). SOBHB uses eight tempering rungs per leaf
 <section id="vgb"><h2>Verification Binaries</h2>
 <div class="panel">{img("f9_vgb", "detectable verification binaries")}
 <div class="caption">The {VGB_N_DET} of 55 catalogue verification binaries that clear
-SNR 7 at three months, with their distance posteriors against the catalogue value.
+SNR 7 at {SCI_TOBS / 86400:.0f} days, with their distance posteriors against the catalogue value.
 The other {55 - VGB_N_DET} are prior-dominated. Full-55 SNR-vs-frequency, all-55
 distance posteriors, the SNR-per-iteration trend, and the interactive zoom cloud were
 removed for the 16 MB size budget; the median VGB SNR is {VGB_SNR_MED:.1f} and the

@@ -5720,7 +5720,7 @@ PYEOF
 # place through Run.overrides instead (build.py rewrites that export line).
 export FSTAT_STAGEB_TOTAL_MAX_GB=${FSTAT_STAGEB_TOTAL_MAX_GB:-12}
 export GF_MONITOR_TITLE="${GF_MONITOR_TITLE:-CD1-L 24 month analysis}"
-export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-flagship}"
+export GF_MONITOR_VERSION="${GF_MONITOR_VERSION:-v1.2.8dev}"
 export EMRI_DIRECT_CHUNK_BATCH=${EMRI_DIRECT_CHUNK_BATCH:-1}
 export EMRI_DIRECT_NT_SUB=${EMRI_DIRECT_NT_SUB:-auto}
 
