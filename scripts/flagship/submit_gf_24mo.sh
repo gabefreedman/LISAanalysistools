@@ -26,7 +26,7 @@
 #     warm start copies its SNR > 10 leaves by catalogue id: MBHB 0,2,3,4,5,7,9,10,12,15,16,18, every EMRI / SOBHB; the monitor page overlays
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_12mo_flagship:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
-#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1, GB_FSTAT_CTR_MODE=unit
+#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1, GB_FSTAT_CTR_MODE=unit, GB_INMODEL_GROUP_DLL=20, GB_SEARCH_2_FSTAT_REFIT_EVERY=9
 #   EXTRA EXPORTS (level 2): 5 line(s) at the hook.
 #
 # NOTES:
@@ -1359,7 +1359,7 @@ export GB_INMODEL_GROUP_ITERS=3
 # which is the direction we want here, on top of the warm-up pass saved.
 # The read is unchanged and still physical: a sub-band retires once its
 # whole model gains less than one source's worth over the window.
-export GB_INMODEL_GROUP_DLL=4.0
+export GB_INMODEL_GROUP_DLL=20
 export GB_INMODEL_GROUP_SCALE=flat
 # ⚠ COST KNOB, NOT A SAFETY NET. This group is unbounded by construction:
 # one pass is a full sweep of every source at 25 repeats each, so 50 passes
@@ -4552,7 +4552,7 @@ export GB_SEARCH_2_INMODEL_CONVERGE_ITERS=${GB_SEARCH_2_INMODEL_CONVERGE_ITERS:-
 # cycles in eight). Applied at every entry of the stage; the entry line reads
 # "F-stat refit cadence set on entry ... rj_fstat_search.fstat_refit_every 2
 # -> 4", and the epoch "starting" lines come every second cycle.
-export GB_SEARCH_2_FSTAT_REFIT_EVERY=${GB_SEARCH_2_FSTAT_REFIT_EVERY:-4}
+export GB_SEARCH_2_FSTAT_REFIT_EVERY=${GB_SEARCH_2_FSTAT_REFIT_EVERY:-9}
 export GB_SEARCH_3_WARM_EVERY=5
 
 # ---- MID-ITERATION CHECKPOINTS (user ask 2026-09-24: "make sure there are

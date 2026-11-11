@@ -453,8 +453,31 @@ _add(Run(
     # (birth/death centre lookups, replace ctr mode, per-unit hoist, audit)
     # sits behind rj_fstat_dist_birth, and GB_RJ_FSTAT_DIST_BIRTH=0 here.
     # Sampling unchanged; ~24 min of a 2.3 h gb_search_1 cycle saved.
+    #
+    # SEARCH SPEED-UPS (user ruling 2026-11-11; measured with
+    # gf_search_tuning_probe.py on the 12mo and 24mo logs, write-up
+    # 24mo_search_tuning_plan_2026-11-11.md):
+    #
+    # GB_INMODEL_GROUP_DLL 4.0 -> 20 (raise the "another source's worth" bar
+    # from D/2 toward an SNR ~7 source's ~25 nats). In late
+    # gb_search_1 each pure in-model slot ran ~10.5 passes while 90% of the
+    # occupied sub-bands had shut by pass 3; the tail is crowded sub-bands
+    # whose 3-pass sampling fluctuation clears a 4-nat bar, and the slots'
+    # net cold dlnL was negative (equilibration, not climbing). Up to ~29 min
+    # of a 106 min cycle. Global: both search stages, read at job start; the
+    # group rule is off in PE. The D/2 tie to the leaf-cap gate is moot here
+    # (GB_LEAF_CAP_START is empty: the cap is off).
+    #
+    # GB_SEARCH_2_FSTAT_REFIT_EVERY 4 -> 9 rows = every 3rd cycle (every 5th
+    # was considered). 12mo gb_search_2: fresh vs one-cycle-old grid
+    # per-hour yield not different in any of 5 stretches (bootstrap 90%
+    # intervals all include 0). 9, not 15: the valve judges once per cycle
+    # with CONV_ITER=3, so at 15 a band could shut on stale grids alone; at 9
+    # every 3-judge streak contains a fresh grid. gb_search_1 unchanged.
     overrides={"GB_MIN_FREQ": "2.5e-4", "GB_PE_RJ_FSTAT_RESIDUAL_SPLIT": "1",
-               "GB_FSTAT_CTR_MODE": "unit"},
+               "GB_FSTAT_CTR_MODE": "unit",
+               "GB_INMODEL_GROUP_DLL": "20",
+               "GB_SEARCH_2_FSTAT_REFIT_EVERY": "9"},
     # monitor page (user request 2026-11-02): plain title, version on the
     # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
     extra_exports=(
