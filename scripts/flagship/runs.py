@@ -474,10 +474,32 @@ _add(Run(
     # intervals all include 0). 9, not 15: the valve judges once per cycle
     # with CONV_ITER=3, so at 15 a band could shut on stale grids alone; at 9
     # every 3-judge streak contains a fresh grid. gb_search_1 unchanged.
+    #
+    # GB_SEARCH_2 SPEED-UPS, ROUND 2 (user ruling 2026-11-13, at the job 2745
+    # resubmit; gb_search_2 row ~250, valve plateaued near 900 active pairs):
+    #
+    # GB_SEARCH_INMODEL_AFTER_REMOVAL 1 -> 0: drop the in_model_removal slot
+    # (~7.9 min of a ~64 min no-fit cycle). in_model_fstat stays, as advised,
+    # so the F-stat births keep their polish. Cost: the next cycle's births
+    # are drawn against the post-death residual without a group-rule pass.
+    # A cycle is then TWO legs (rows): [vgb_pe, rj_warm_search, in_model] and
+    # [rj_fstat_search, in_model_fstat, rj_prior_removal, ridge, sources,
+    # noise], the second row still labelled "in_model_fstat". The store
+    # stamped gb_search_2's three-leg move order at stage entry and never
+    # overwrites it, so every later resume logs "[LEG gb_search_2] the
+    # stage's stored move order ... differs" and starts at the head of the
+    # cycle (cycle count 0; every gb_search_2 cadence is 1, so harmless).
+    # The dashboard's stage-cycle table keeps showing the stored 3-leg order.
+    #
+    # GB_SEARCH_2_FSTAT_REFIT_EVERY 9 -> 10 rows = every 5th cycle at TWO
+    # rows per cycle (ages 2, 4, ..., 10). 15 was asked for as "every 5th";
+    # at two rows a cycle that would be every 7.5th. Fits were ~37% of the
+    # average gb_search_2 cycle at 9 (115 min every 3rd cycle).
     overrides={"GB_MIN_FREQ": "2.5e-4", "GB_PE_RJ_FSTAT_RESIDUAL_SPLIT": "1",
                "GB_FSTAT_CTR_MODE": "unit",
                "GB_INMODEL_GROUP_DLL": "20",
-               "GB_SEARCH_2_FSTAT_REFIT_EVERY": "9"},
+               "GB_SEARCH_2_FSTAT_REFIT_EVERY": "10",
+               "GB_SEARCH_INMODEL_AFTER_REMOVAL": "0"},
     # monitor page (user request 2026-11-02): plain title, version on the
     # small stamp line (GF_MONITOR_TITLE / GF_MONITOR_VERSION, _generator.py)
     extra_exports=(
