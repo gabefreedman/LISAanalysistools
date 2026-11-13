@@ -26,7 +26,7 @@
 #     warm start copies its SNR > 10 leaves by catalogue id: MBHB 0,2,3,4,5,7,9,10,12,15,16,18, every EMRI / SOBHB; the monitor page overlays
 #     every earlier run, nearest first: GF_MONITOR_ADD_INFO=/shared/data/global_fit_output/gf_prod_12mo_flagship:/shared/data/global_fit_output/gf_prod_9mo_v9:/shared/data/global_fit_output/gf_prod_6mo_v9_4gpu).
 #     The parent store must be COMPLETE and readable when this launches.
-#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1, GB_FSTAT_CTR_MODE=unit, GB_INMODEL_GROUP_DLL=20, GB_SEARCH_2_FSTAT_REFIT_EVERY=9
+#   OVERRIDES (level 2, rewritten export lines): GB_MIN_FREQ=2.5e-4, GB_PE_RJ_FSTAT_RESIDUAL_SPLIT=1, GB_FSTAT_CTR_MODE=unit, GB_INMODEL_GROUP_DLL=20, GB_SEARCH_2_FSTAT_REFIT_EVERY=10, GB_SEARCH_INMODEL_AFTER_REMOVAL=0
 #   EXTRA EXPORTS (level 2): 5 line(s) at the hook.
 #
 # NOTES:
@@ -2681,7 +2681,7 @@ export GB_SEARCH_BAND_SHUTOFF_ALL_WALKERS=${GB_SEARCH_BAND_SHUTOFF_ALL_WALKERS:-
 # level-2 group rule, the level-3 shut mask and the census. Cost is the
 # same class too: ~1400 s at a fully open population, under 200 s once
 # most pairs are shut. GB_SEARCH_DROP_MOVES can name it.
-export GB_SEARCH_INMODEL_AFTER_REMOVAL=1
+export GB_SEARCH_INMODEL_AFTER_REMOVAL=0
 # GB_SEARCH_DROP_MOVES EXISTS BUT IS DELIBERATELY UNSET.
 # It omits named pure in-model slots from every search stage. Dropping
 # in_model_fstat was proposed on 2026-09-28 on cost grounds (it and
@@ -4552,7 +4552,7 @@ export GB_SEARCH_2_INMODEL_CONVERGE_ITERS=${GB_SEARCH_2_INMODEL_CONVERGE_ITERS:-
 # cycles in eight). Applied at every entry of the stage; the entry line reads
 # "F-stat refit cadence set on entry ... rj_fstat_search.fstat_refit_every 2
 # -> 4", and the epoch "starting" lines come every second cycle.
-export GB_SEARCH_2_FSTAT_REFIT_EVERY=${GB_SEARCH_2_FSTAT_REFIT_EVERY:-9}
+export GB_SEARCH_2_FSTAT_REFIT_EVERY=${GB_SEARCH_2_FSTAT_REFIT_EVERY:-10}
 export GB_SEARCH_3_WARM_EVERY=5
 
 # ---- MID-ITERATION CHECKPOINTS (user ask 2026-09-24: "make sure there are
