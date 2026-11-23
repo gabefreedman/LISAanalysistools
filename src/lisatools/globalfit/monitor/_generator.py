@@ -8965,7 +8965,24 @@ for _branch, _spec in _SRC_BRANCH_SPECS.items():
                 f"full_pe {_n_pe} rows (start "
                 f"{_SRC_FULL_PE_START if _SRC_FULL_PE_START is not None else 'n/a'}) · "
                 f"dotted red = catalogue truth")
-        _blob["src"].append({"label": _label, "sub": _sub, "png": _png})
+        _entry = {"label": _label, "sub": _sub, "png": _png}
+        # FULL-POSTERIOR TOGGLE (user ruling 2026-11-23): a second PNG over
+        # EVERY sampled parameter, swapped in by the panel's "full
+        # posteriors" checkbox. The 16 MB page budget is no longer a hard
+        # constraint, so these ride in the page next to the key-parameter
+        # PNG. A failed full render leaves the compressed view intact.
+        try:
+            _entry["png_full"] = _src_make_leaf_png(
+                branch=_branch, leaf_idx=_leaf, label=_label + " · all parameters",
+                chain=_chain, inds=_inds, truth=_truths[_leaf],
+                param_defs=_spec["param_defs"],
+                key_idx=list(range(len(_spec["param_defs"]))),
+                dh=_dh, hh=_hh, tally=_per_branch_bytes,
+            )
+        except Exception as e:
+            MISSING.append(
+                f"{_branch} leaf {_leaf} full-posterior PNG render failed: {e!r}")
+        _blob["src"].append(_entry)
     SRC_PANEL_JSON[_branch] = json.dumps(_blob)
     SRC_PANEL_META[_branch] = {
         "nleaves": int(_nleaves),
@@ -9667,13 +9684,14 @@ groups below start collapsed &mdash; click a heading to open one</span></h2>
 <div class="panel">
 <div class="btnrow viewctl">
   <label>source <select id="mbh1_sel"></select></label>
+  <label><input type="checkbox" id="mbh1_full"> full posteriors (all sampled parameters)</label>
   <span class="caption" style="align-self:center">cold-chain trace (top) and
   posterior over full_pe rows (bottom) per injected MBHB, one source at a
   time; dotted red is the catalogue value</span>
 </div>
 <img id="mbh1_img" alt="MBHB chain + posterior">
 <div class="caption" id="mbh1_cap"></div>
-<div class="caption">{MBH_PANEL_COUNT} Key parameters shown: total mass
+<div class="caption">{MBH_PANEL_COUNT} Key parameters shown (tick <em>full posteriors</em> for every sampled parameter): total mass
 M<sub>tot</sub>, mass ratio Q = m<sub>1</sub>/m<sub>2</sub> &ge; 1, aligned
 spins &chi;<sub>1</sub> / &chi;<sub>2</sub>, coalescence time t<sub>c</sub>,
 distance d<sub>L</sub>, sky (&alpha;, sin&delta;). The right-hand diagnostic
@@ -9688,13 +9706,14 @@ cold-walker-pooled full_pe window.</div>
 <div class="panel">
 <div class="btnrow viewctl">
   <label>source <select id="emri1_sel"></select></label>
+  <label><input type="checkbox" id="emri1_full"> full posteriors (all sampled parameters)</label>
   <span class="caption" style="align-self:center">cold-chain trace (top) and
   posterior over full_pe rows (bottom) per injected EMRI; dotted red is the
   catalogue value</span>
 </div>
 <img id="emri1_img" alt="EMRI chain + posterior">
 <div class="caption" id="emri1_cap"></div>
-<div class="caption">{EMRI_PANEL_COUNT} Key parameters shown: primary mass
+<div class="caption">{EMRI_PANEL_COUNT} Key parameters shown (tick <em>full posteriors</em> for every sampled parameter): primary mass
 log&nbsp;m<sub>1</sub>, spin a, semi-latus rectum p<sub>0</sub>, eccentricity
 e<sub>0</sub>, distance d<sub>L</sub>. The sky is kept in each sampling
 frame &mdash; the EMRI stock basis uses ecliptic colatitude q<sub>S</sub>
@@ -9707,13 +9726,14 @@ and RA.</div>
 <div class="panel">
 <div class="btnrow viewctl">
   <label>source <select id="sobbh1_sel"></select></label>
+  <label><input type="checkbox" id="sobbh1_full"> full posteriors (all sampled parameters)</label>
   <span class="caption" style="align-self:center">cold-chain trace (top) and
   posterior over full_pe rows (bottom) per injected SOBHB; dotted red is the
   catalogue value</span>
 </div>
 <img id="sobbh1_img" alt="SOBHB chain + posterior">
 <div class="caption" id="sobbh1_cap"></div>
-<div class="caption">{SOBBH_PANEL_COUNT} Key parameters shown: component
+<div class="caption">{SOBBH_PANEL_COUNT} Key parameters shown (tick <em>full posteriors</em> for every sampled parameter): component
 log-masses log&nbsp;m<sub>1</sub>, log&nbsp;m<sub>2</sub>, starting GW
 frequency f<sub>low</sub>, distance d<sub>L</sub>, and sky (&phi;<sub>S</sub>,
 cos&nbsp;q<sub>S</sub>). SOBHB uses eight tempering rungs per leaf
@@ -10149,9 +10169,13 @@ function cornerPanel(px, blob) {{
     const o = document.createElement("option");
     o.value = i; o.textContent = s.label; sel.appendChild(o);
   }});
+  // optional "full posteriors" checkbox (mbh / emri / sobbh panels): swaps
+  // in the all-parameter PNG when the leaf has one, else keeps the key view
+  const full = document.getElementById(px + "_full");
   function show() {{
     const S = blob.src[+sel.value || 0];
-    im.src = "data:image/png;base64," + S.png;
+    const png = (full && full.checked && S.png_full) ? S.png_full : S.png;
+    im.src = "data:image/png;base64," + png;
     im.alt = S.label;
     // the GB panel carries a catalogue-match note (red when the source has
     // no injected counterpart); the VGB panel leaves it empty
@@ -10161,6 +10185,7 @@ function cornerPanel(px, blob) {{
     cap.innerHTML = S.sub + note;
   }}
   sel.onchange = show;
+  if (full) full.onchange = show;
   show();
 }}
 cornerPanel("vgb1", VGBC);
