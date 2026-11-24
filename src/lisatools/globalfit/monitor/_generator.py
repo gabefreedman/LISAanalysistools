@@ -8429,9 +8429,9 @@ _SRC_BRANCH_SPECS = {
             ("p0",       r"$p_0$"),
             ("e0",       r"$e_0$"),
             ("dist",     r"$d_L$"),
-            ("qS",       r"$q_S$"),
+            ("cosqS",    r"$\cos q_S$"),
             ("phiS",     r"$\phi_S$"),
-            ("qK",       r"$q_K$"),
+            ("cosqK",    r"$\cos q_K$"),
             ("phiK",     r"$\phi_K$"),
             ("Phi_phi0", r"$\Phi_{\phi,0}$"),
             ("Phi_r0",   r"$\Phi_{r,0}$"),
@@ -8507,21 +8507,22 @@ def _src_cat_to_sampling_mbh(row):
 
 
 def _src_cat_to_sampling_emri(row):
-    """EMRI catalogue entry -> EMRI sampling basis (ecliptic colat sky)."""
-    logm1 = np.log(float(row["PrimaryMassSSBFrame"]))
-    m2 = float(row["SecondaryMassSSBFrame"])
-    a = float(row["PrimarySpinParameter"])
-    p0 = float(row["SemiLatusRectum"])
-    e0 = float(row["Eccentricity"])
-    dist = float(row["LuminosityDistance"]) / 1e3
-    qS = np.pi / 2 - float(row["Declination"])            # ecliptic colatitude
-    phiS = float(row["RightAscension"]) % (2 * np.pi)
-    qK = float(row["PolarAnglePrimarySpin"])
-    phiK = float(row["AzimuthalAnglePrimarySpin"]) % (2 * np.pi)
-    Phi_phi0 = float(row["AzimuthalPhase"]) % (2 * np.pi)
-    Phi_r0 = float(row["RadialPhase"]) % (2 * np.pi)
-    return np.array([logm1, m2, a, p0, e0, dist, qS, phiS, qK, phiK,
-                     Phi_phi0, Phi_r0])
+    """EMRI catalogue entry -> EMRI sampling basis (as stored in the chain).
+
+    Routes through the engine's own catalogue conversion
+    (``emri_catalogue_to_waveform_basis``: ICRS RA/Dec -> ECLIPTIC qS/phiS,
+    raw catalogue spin qK/phiK), then applies the stock EMRI container's
+    inverse ops: ``log m1``, ``cos qS``, ``cos qK``. The 12 columns are
+    ``logm1, m2, a, p0, e0, dist, cosqS, phiS, cosqK, phiK, Phi_phi0, Phi_r0``.
+    """
+    from lisatools.sources.emri.waveform import emri_catalogue_to_waveform_basis
+    ph = np.asarray(emri_catalogue_to_waveform_basis(row), dtype=float)
+    # ph = [m1, m2, a, p0, e0, xI0, dist, qS, phiS, qK, phiK,
+    #       Phi_phi0, Phi_theta0, Phi_r0]
+    return np.array([np.log(ph[0]), ph[1], ph[2], ph[3], ph[4], ph[6],
+                     np.cos(ph[7]), ph[8] % (2 * np.pi),
+                     np.cos(ph[9]), ph[10] % (2 * np.pi),
+                     ph[11] % (2 * np.pi), ph[13] % (2 * np.pi)])
 
 
 def _src_cat_to_sampling_sobbh(row):
@@ -9716,9 +9717,10 @@ cold-walker-pooled full_pe window.</div>
 <div class="caption">{EMRI_PANEL_COUNT} Key parameters shown (tick <em>full posteriors</em> for every sampled parameter): primary mass
 log&nbsp;m<sub>1</sub>, spin a, semi-latus rectum p<sub>0</sub>, eccentricity
 e<sub>0</sub>, distance d<sub>L</sub>. The sky is kept in each sampling
-frame &mdash; the EMRI stock basis uses ecliptic colatitude q<sub>S</sub>
-and &phi;<sub>S</sub>, so the truth sky line comes from &pi;/2 &minus; Dec
-and RA.</div>
+frame &mdash; the EMRI stock basis samples cos&nbsp;q<sub>S</sub> and
+&phi;<sub>S</sub> in ECLIPTIC coordinates (converted from the catalogue's ICRS
+RA/Dec, as the engine does) and cos&nbsp;q<sub>K</sub>, &phi;<sub>K</sub>
+from the raw catalogue spin angles; the truth lines use the same basis.</div>
 </div>
 </section>
 
