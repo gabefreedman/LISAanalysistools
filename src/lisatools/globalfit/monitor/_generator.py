@@ -3732,6 +3732,77 @@ except Exception as e:
 
 
 # ---- TIME-FREQUENCY IMAGES: POOL TO THE PIXEL GRID (2026-10-11) -----------
+def logf_rms_bin(x, y, npts=2200):
+    """Log-frequency RMS binning: a 1.55M-bin spectrum has to lose 99.9%
+    of its points to fit a PNG. Earlier this was a linear block-MAX of
+    |y|; that preserved narrow GB lines but the sub-band region reads
+    as visible waviness because Tukey-window sidelobes from strong
+    sub-mHz TDI content sinc-leak across every bin below FLO and the
+    MAX picks up their peaks. Log-frequency RMS (sqrt of the mean of
+    |y|^2 per log-f bin) collapses the sinc envelope to its RMS while
+    narrow GB lines still show as bumps above the residual floor
+    (in-band, thousands of noise bins per log-f pixel drop the RMS
+    floor well below the GB peak). Matches what the F1 residual-
+    spectrum panel already does (see the ``_bmean`` block below).
+    """
+    x = np.asarray(x, float)
+    y = np.abs(np.asarray(y))
+    pos = x > 0
+    if not pos.any():
+        return x[:0], y[:0]
+    xL, yL = x[pos], y[pos]
+    ed = np.logspace(np.log10(xL[0]), np.log10(xL[-1]), npts + 1)
+    bi = np.clip(np.searchsorted(ed, xL, side="right") - 1, 0, npts - 1)
+    cnt = np.bincount(bi, minlength=npts).astype(float)
+    s2 = np.bincount(bi, weights=yL ** 2, minlength=npts)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rms = np.sqrt(s2 / np.maximum(cnt, 1))
+    fc = np.sqrt(ed[:-1] * ed[1:])
+    ok = cnt > 0
+    return fc[ok], rms[ok]
+
+
+def draw_fd_x_data_residual(f_hz, data_x, resid_x, flo_hz, fhi_hz,
+                            ylo=1e-19, yhi=3e-15):
+    """The TDI X data | data + residual spectrum figure (2026-11-24 layout).
+
+    ``f_hz`` and the two complex X-channel series are already cut to the
+    band ``[flo_hz, fhi_hz]`` (the run's GB band edges, which are also the
+    x-range), frequencies in Hz (2026-11-25; was mHz). Left: the data; right: the data, faint, under the residual.
+    Each curve is log-frequency RMS binned (:func:`logf_rms_bin`). Returns
+    the figure, laid out.
+    """
+    import matplotlib.ticker as _mtick
+    cols = [
+        [("data", data_x, DIM, 1.0, 0.9)],
+        [("data", data_x, DIM, 0.55, 1.1), ("residual", resid_x, CYAN, 1.0, 0.7)],
+    ]
+    fig, ax = plt.subplots(1, 2, figsize=(14.0, 5.6), sharex=True, sharey=True)
+    for c, series in enumerate(cols):
+        a_ = ax[c]
+        for lab, arr, col, al, lw in series:
+            x_, y_ = logf_rms_bin(f_hz, arr)
+            y_ = np.where(y_ > ylo, y_, np.nan)   # no off-scale spikes
+            a_.plot(x_, y_, color=col, lw=lw, alpha=al, label=lab)
+        a_.set_xscale("log"); a_.set_yscale("log")
+        _lg = a_.legend(fontsize=9, loc="lower left")
+        for _lh in _lg.get_lines():
+            _lh.set_linewidth(2.2)
+        a_.set_xlabel("Frequency [Hz]", fontsize=10)
+        # decade labels only (10^-3, 10^-2): on a band under ~2 decades wide
+        # matplotlib also labels the 2x, 3x ... minor ticks and they collide
+        a_.xaxis.set_major_locator(_mtick.LogLocator(base=10))
+        a_.xaxis.set_major_formatter(_mtick.LogFormatterSciNotation(base=10))
+        a_.xaxis.set_minor_locator(_mtick.LogLocator(base=10, subs=np.arange(2, 10)))
+        a_.xaxis.set_minor_formatter(_mtick.NullFormatter())
+    ax[0].set_ylabel("|TDI X(f)|  [1/Hz]", fontsize=10)
+    ax[0].set_xlim(flo_hz, fhi_hz)
+    ax[0].set_ylim(ylo, yhi)
+    fig.suptitle("TDI X: data and residual", fontsize=12, color=FG)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    return fig
+
+
 # An MBHB merger is ONE WDM time column (3600 s). The 9mo panel used to
 # max-pool 5 columns per drawn column (6361 -> 1272) and hand that to a
 # ~347 px wide axes, so matplotlib's own resampling kept one column in ~3.7
@@ -3815,6 +3886,10 @@ def tf_display_grid(axes, dpi):
     return max(int(np.floor(w)) - 1, 1), max(int(np.floor(h)) - 1, 1)
 
 
+#: top of the whitened time-frequency map's fixed colour range, in units of
+#: the expected noise level (pure noise reads 1)
+WHITE_VMAX = 5.0          # user choice 2026-11-25, after the cluster preview
+
 #: sampling-basis column of ``t_plunge`` in ``chain/mbh``
 #: (``stock.erebor.transforms.make_mbh_transform_container``: the last of 11)
 MBH_T_PLUNGE_COL = 10
@@ -3846,7 +3921,9 @@ def mbh_merger_plot_days(chain_row, inds_row, t_offset, col=MBH_T_PLUNGE_COL):
 
 def draw_wdm_tf_panels(sources, *, layer_dt, layer_df, t_edge0, f_edge0, nt, nf,
                        col_titles, row_names=("X", "Y", "Z"), suptitle="",
-                       mergers_d=(), merger_src="", dpi=88, figsize=(13.5, 8.6)):
+                       mergers_d=(), merger_src="", dpi=88, figsize=(13.5, 8.6),
+                       xlabel=None, ylabel=None, cbar_label="|w| / {vmax:.2e}",
+                       pool="max", clim=None, yscale="linear", f_unit=1e3):
     """The data | fitted signals | residual time-frequency figure.
 
     ``sources`` is three ``(key, thunk)`` pairs in column order; each thunk
@@ -3859,12 +3936,34 @@ def draw_wdm_tf_panels(sources, *, layer_dt, layer_df, t_edge0, f_edge0, nt, nf,
     no column is skipped and a one-column merger shows in every panel.
 
     Colour: ONE linear scale per channel row, the 99.5th percentile of that
-    row's POOLED data panel, shared across the row. Max pooling lifts the
-    apparent noise floor a little against an unpooled view; the subtitle
-    says so. The time axis is days from ``t_edge0`` (seconds, the first
-    active edge); ``mergers_d`` (days, same origin) are drawn as short white
-    ticks on the top and bottom edge of every panel, off the image's middle
-    so they never cover the feature they mark.
+    row's POOLED data panel, shared across the row, with one colourbar per
+    row in its own slot right of the last panel (so every panel in a row is
+    the same width). ``cbar_label`` is formatted with ``vmax=`` that scale.
+    ``clim=(lo, hi)`` instead draws the pooled values as they are on that
+    fixed range (a whitened map, in units of the noise level).
+
+    ``pool``: ``"max"`` (default, above) or ``"rms"``, the root mean square
+    of each block, ``sqrt(mean(x^2))``: for a WHITENED map, where MAX would
+    lift unit-variance noise to ~2 at ~28 cells per block while RMS keeps it
+    at 1; a one-column transient is diluted by the block length instead.
+    The time axis is days from ``t_edge0`` (seconds, the first active edge);
+    ``xlabel`` / ``ylabel`` (``ylabel`` formatted with ``row=``) override the
+    default axis labels. ``mergers_d`` (days, same origin) are drawn as
+    short white ticks on the top and bottom edge of every panel, off the
+    image's middle so they never cover the feature they mark, and named in
+    a subtitle line; with none drawn there is no subtitle.
+
+    ``yscale="log"`` draws each panel as a mesh on the EXACT layer edges
+    (``pcolormesh``) under a log frequency axis: an image assumes evenly
+    spaced rows, and on a log axis the top layers would share pixels and be
+    dropped. Frequency is then not pooled at all (the layers are linear in
+    f, so the top decade holds most of them, still at about one pixel each
+    on a ~450 px axes); time is pooled exactly as above. A 0 Hz first edge,
+    which a log axis cannot hold, is left off. Log ticks are labelled at the
+    decades only (10^-3, 10^-2), with unlabelled minor ticks between.
+
+    ``f_unit`` is the frequency axis unit per Hz: 1e3 (default) draws mHz,
+    1.0 draws Hz.
 
     ``figsize`` height 8.6 in (8.0 before 2026-10-11) gives each row ~185 px
     at 88 dpi, so the 179-layer grid is drawn at one layer per pixel or
@@ -3889,27 +3988,40 @@ def draw_wdm_tf_panels(sources, *, layer_dt, layer_df, t_edge0, f_edge0, nt, nf,
             if r == 0:
                 a_.set_title(col_titles[c], fontsize=10)
             if c == 0:
-                a_.set_ylabel(f"{row_names[r]}\nfrequency [mHz]", fontsize=9)
+                a_.set_ylabel(ylabel.format(row=row_names[r]) if ylabel else
+                              f"{row_names[r]}\nfrequency [mHz]", fontsize=9)
             if r == nr - 1:
                 # the axis starts at the first ACTIVE edge, not at the data
                 # start: the edge crop (min_time) sits in between
-                a_.set_xlabel(f"time [d], 0 = data start + {t_edge0 / 86400.0:.3g} d "
-                              f"(edge crop)", fontsize=9)
-            if c == nc - 1:
-                cbs[r] = fig.colorbar(ims[r, c], ax=a_, fraction=0.046, pad=0.02)
-                cbs[r].ax.tick_params(labelsize=7)
-                cbs[r].set_label(f"|w| / {1.0:.2e}", fontsize=7, color=DIM)
-    fig.suptitle(suptitle, fontsize=10, color=FG, y=0.997)
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+                a_.set_xlabel(xlabel or (f"time [d], 0 = data start + "
+                                         f"{t_edge0 / 86400.0:.3g} d (edge crop)"),
+                              fontsize=9)
+    has_sub = len(mergers_d) > 0       # room for the merger subtitle line
+    fig.suptitle(suptitle, fontsize=11, color=FG, y=0.997)
+    # tight_layout already reserves the suptitle; the rect top only makes room
+    # for the merger subtitle line when there is one
+    fig.tight_layout(rect=[0, 0, 0.93, 0.94 if has_sub else 1.0])
+    for r in range(nr):
+        _p = ax[r][nc - 1].get_position()
+        _cax = fig.add_axes([0.945, _p.y0, 0.012, _p.height], label="<colorbar>")
+        cbs[r] = fig.colorbar(ims[r, nc - 1], cax=_cax)
+        cbs[r].ax.tick_params(labelsize=7)
 
     n_cols, n_rows = tf_display_grid(ax.ravel(), dpi)
-    bt, bf = tf_pool_block(nt, n_cols), tf_pool_block(nf, n_rows)
+    if yscale == "log":
+        n_rows = None                  # every layer drawn, see the docstring
+    bt = tf_pool_block(nt, n_cols)
+    bf = 1 if n_rows is None else tf_pool_block(nf, n_rows)
     pooled = {}
     for key, thunk in sources:
         m = thunk()
         if tuple(m.shape[-2:]) != (int(nf), int(nt)):
             raise ValueError(f"{key}: |w| shape {m.shape} != (.., {nf}, {nt})")
-        pooled[key] = pool_tf_for_display(m, n_cols, n_rows, how="max")
+        if pool == "rms":
+            pooled[key] = np.sqrt(pool_tf_for_display(
+                np.square(m), n_cols, n_rows, how="mean"))
+        else:
+            pooled[key] = pool_tf_for_display(m, n_cols, n_rows, how="max")
         del m
     keys = [k for k, _ in sources]
     pshape = pooled[keys[0]].shape
@@ -3917,18 +4029,44 @@ def draw_wdm_tf_panels(sources, *, layer_dt, layer_df, t_edge0, f_edge0, nt, nf,
     # ragged last one included, so a merger tick lands on its own cell. The
     # axis may run up to one cell past the analysed span; nothing is cut.
     ext = [0.0, pshape[-1] * bt * layer_dt / 86400.0,
-           f_edge0 * 1e3, (f_edge0 + pshape[-2] * bf * layer_df) * 1e3]
+           f_edge0 * f_unit, (f_edge0 + pshape[-2] * bf * layer_df) * f_unit]
     vmaxes = []
     for r in range(nr):
-        vmax = float(np.nanpercentile(pooled[keys[0]][r], 99.5))
-        if not np.isfinite(vmax) or vmax <= 0.0:
-            vmax = 1.0
+        if clim is not None:
+            vmax = float(clim[1])
+        else:
+            vmax = float(np.nanpercentile(pooled[keys[0]][r], 99.5))
+            if not np.isfinite(vmax) or vmax <= 0.0:
+                vmax = 1.0
         vmaxes.append(vmax)
+        lo, hi = (float(clim[0]), float(clim[1])) if clim is not None else (0.0, 1.0)
         for c, key in enumerate(keys):
-            ims[r, c].set_data(pooled[key][r] / vmax)
-            ims[r, c].set_extent(ext)
-        cbs[r].set_label(f"|w| / {vmax:.2e}", fontsize=7, color=DIM)
+            vals = pooled[key][r] if clim is not None else pooled[key][r] / vmax
+            if yscale == "log":
+                te_d = np.arange(pshape[-1] + 1) * bt * layer_dt / 86400.0
+                fe_m = (f_edge0 + np.arange(pshape[-2] + 1) * bf * layer_df) * f_unit
+                if fe_m[0] <= 0.0:
+                    fe_m, vals = fe_m[1:], vals[1:]
+                ims[r, c].remove()
+                ims[r, c] = ax[r][c].pcolormesh(te_d, fe_m, vals, cmap="viridis",
+                                                vmin=lo, vmax=hi, shading="flat",
+                                                rasterized=True)
+                ext[2] = float(fe_m[0])
+            else:
+                ims[r, c].set_data(vals)
+                ims[r, c].set_clim(lo, hi)
+                ims[r, c].set_extent(ext)
+        cbs[r].update_normal(ims[r, nc - 1])
+        cbs[r].set_label(cbar_label.format(vmax=vmax), fontsize=8, color=DIM)
     ax[0][0].set_xlim(ext[0], ext[1])
+    if yscale == "log":
+        from matplotlib.ticker import LogFormatterSciNotation, LogLocator, NullFormatter
+        ax[0][0].set_yscale("log")
+        for a_ in ax.ravel():
+            a_.yaxis.set_major_locator(LogLocator(base=10))
+            a_.yaxis.set_major_formatter(LogFormatterSciNotation(base=10))
+            a_.yaxis.set_minor_locator(LogLocator(base=10, subs=np.arange(2, 10)))
+            a_.yaxis.set_minor_formatter(NullFormatter())
     ax[0][0].set_ylim(ext[2], ext[3])
 
     drawn = [float(t) for t in mergers_d if ext[0] <= float(t) <= ext[1]]
@@ -3939,15 +4077,12 @@ def draw_wdm_tf_panels(sources, *, layer_dt, layer_df, t_edge0, f_edge0, nt, nf,
             for y0, y1 in ((0.0, 0.07), (0.93, 1.0)):
                 a_.plot([t, t], [y0, y1], transform=_tx, color="white", lw=1.3,
                         solid_capstyle="butt", path_effects=_halo, zorder=5)
-    sub = (f"max-pooled to the pixel grid: one drawn column = {bt} x "
-           f"{layer_dt:.0f} s" + (f", one drawn row = {bf} layers" if bf > 1 else "")
-           + " (MAX keeps one-pixel transients in every panel; the noise floor "
-           "reads slightly higher)")
     if drawn:
-        sub += (f"\nwhite edge ticks = the {len(drawn)} MBHB merger times"
-                + (f" ({merger_src})" if merger_src else ""))
-    fig.text(0.5, 0.973, sub, ha="center", va="top", fontsize=8, color=DIM)
-    info = dict(n_cols=int(n_cols), n_rows=int(n_rows), bt=int(bt), bf=int(bf),
+        sub = (f"white edge ticks = the {len(drawn)} MBHB merger times"
+               + (f" ({merger_src})" if merger_src else ""))
+        fig.text(0.5, 0.973, sub, ha="center", va="top", fontsize=8, color=DIM)
+    info = dict(n_cols=int(n_cols), n_rows=int(pshape[-2] if n_rows is None else n_rows),
+                bt=int(bt), bf=int(bf),
                 pooled_shape=tuple(int(s) for s in pshape), vmax=vmaxes,
                 mergers_d=drawn, extent=ext)
     return fig, info
@@ -3971,6 +4106,99 @@ def snapshot_wdm_to_fd(arr, wdm, full, fds, channels=None):
     pad = np.zeros((a.shape[0], int(full.Nf), int(full.Nt)))
     pad[:, wdm.active_slice_f, wdm.active_slice_t] = a
     return np.asarray(WDMSignal(pad, full).wdm_to_fd(settings=fds).arr)
+
+
+def _noise_digest(*arrays):
+    """The engine's noise-identity digest (``GeneralSetup._resolve_deferred_
+    noise_model``): sha256 over each array's shape and float64 bytes, first
+    16 hex characters."""
+    import hashlib
+    h = hashlib.sha256()
+    for a in arrays:
+        a = np.ascontiguousarray(np.asarray(a, dtype=float))
+        h.update(str(a.shape).encode())
+        h.update(a.tobytes())
+    return h.hexdigest()[:16]
+
+
+def run_noise_backend(wdm, identity, noise_file, ltts_stride=200):
+    """The run's own noise model on ``wdm``, rebuilt from its stored identity.
+
+    Rebuilds the :class:`~lisatools.sensitivity.CompositeSensitivityBackend`
+    the production ``all_sources`` run evaluates its likelihood with
+    (``stock/erebor/variants/all_sources.py::finalize_general`` + the engine's
+    ``_resolve_deferred_noise_model``): TDI 2; the unequal-arm instrument
+    (:class:`~lisatools.sensitivity.UnequalArmInstrumentNoise`) fed by the
+    NOISE brick's ``/ltts`` table, strided by ``ltts_stride`` and anchored at
+    ``identity["data_t0"]``; the default hyperbolic-tangent galactic
+    foreground times the packaged modulation table named in the identity,
+    anchored at ``identity["galfor_modulation_t0"]``; and the identity's
+    ``wdm_psd_method``. No SGWB component.
+
+    ``identity`` is :func:`~lisatools.globalfit.stock.erebor.noise.
+    read_noise_model_identity` of the store. The delay-table and modulation
+    digests are recomputed and must equal the stored ones, so a page can
+    never whiten with a different noise model than the run's: any mismatch,
+    or a store with no identity, raises ``ValueError``.
+    """
+    from lisatools.sensitivity import (
+        CompositeSensitivityBackend, GalForTimeModulation, LinkDelayTable,
+        UnequalArmInstrumentNoise, packaged_galfor_modulation_path)
+
+    if not identity:
+        raise ValueError("the store records no noise_model_identity")
+    inst = str(identity.get("instrument_component", "InstrumentNoise"))
+    kw = dict(tdi_generation=2,
+              wdm_psd_method=str(identity.get("wdm_psd_method", "fold")),
+              force_backend="cpu")
+    if identity.get("unequal_arm"):
+        if inst != "UnequalArmInstrumentNoise":
+            raise ValueError(f"unequal_arm store with instrument {inst!r}")
+        table = LinkDelayTable.from_l1_file(
+            noise_file, stride=int(ltts_stride),
+            data_t0=float(identity["data_t0"]))
+        got = _noise_digest(table.t, table.ltts)
+        if got != identity.get("ltts_digest"):
+            raise ValueError(f"delay-table digest {got} != the run's "
+                             f"{identity.get('ltts_digest')} ({noise_file}, "
+                             f"stride {ltts_stride})")
+        kw.update(instrument_component_cls=UnequalArmInstrumentNoise,
+                  instrument_component_kwargs=dict(ltts=table))
+    elif inst != "InstrumentNoise":
+        raise ValueError(f"unsupported instrument component {inst!r}")
+    mod_name = identity.get("galfor_modulation") or ""
+    if mod_name:
+        mod = GalForTimeModulation(packaged_galfor_modulation_path(mod_name),
+                                   t0=float(identity["galfor_modulation_t0"]))
+        got = _noise_digest(mod._table())
+        if got != identity.get("galfor_modulation_digest"):
+            raise ValueError(f"modulation digest {got} != the run's "
+                             f"{identity.get('galfor_modulation_digest')} "
+                             f"({mod_name})")
+        kw["galfor_modulation"] = mod
+    return CompositeSensitivityBackend(wdm, **kw)
+
+
+def wdm_whitening_sigma_x(backend, wdm, psd_params, galfor_params):
+    """Per-pixel noise scale of channel X on the WDM grid, ``(Nf, Nt)``.
+
+    ``sigma = sqrt(C_XX / (4 * Delta))``: ``C_XX`` is the XX element of the
+    walker's noise covariance (``backend(name, psd_params, galfor_params=)``,
+    physical bases) and ``Delta`` the grid's ``differential_component``. The
+    likelihood's inner product is ``<a|b> = 4 sum a C^-1 b Delta``, so a real
+    WDM coefficient of pure noise has variance ``C / (4 Delta)`` and
+    ``r_X / sigma`` is unit-variance when the noise model is right. It is
+    channel X's MARGINAL variance: the right whitening for one channel shown
+    alone (the X-Y-Z correlations matter only when channels are combined).
+    Pixels with no finite positive variance come back NaN.
+    """
+    sens = backend("monitor_whitening", np.asarray(psd_params, dtype=float),
+                   galfor_params=np.asarray(galfor_params, dtype=float))
+    cxx = np.asarray(sens.sens_mat[0, 0], dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        sig = np.sqrt(cxx / (4.0 * float(wdm.differential_component)))
+    sig[~(np.isfinite(sig) & (sig > 0))] = np.nan
+    return sig
 
 
 def load_residual_snapshot(path, keep_walkers=None):
@@ -4391,88 +4619,12 @@ try:
                band_rp=float(np.sum(np.abs(resid_fd[:, _mb]) ** 2)))
 
     # ===================== FD figure ======================================
+    # Presentation layout (user request 2026-11-24): TDI X only, data on the
+    # left, data + residual on the right, x-range = the run's GB band edges.
+    # The residual is the run's own when SNAP is set, else data - the GB +
+    # VGB templates; the note below says which.
     CHN = ["X", "Y", "Z"]
-    _sel = (_fr >= 1e-4) & (_fr <= 2.6e-2)
-    _fs = _fr[_sel] * 1e3
-    _FLO, _FHI = band_edges[0] * 1e3, band_edges[-1] * 1e3
-    _YLO = 1e-19
-
-    def _maxdec(x, y, npts=2200):
-        """Log-frequency RMS binning: a 1.55M-bin spectrum has to lose 99.9%
-        of its points to fit a PNG. Earlier this was a linear block-MAX of
-        |y|; that preserved narrow GB lines but the sub-band region reads
-        as visible waviness because Tukey-window sidelobes from strong
-        sub-mHz TDI content sinc-leak across every bin below FLO and the
-        MAX picks up their peaks. Log-frequency RMS (sqrt of the mean of
-        |y|^2 per log-f bin) collapses the sinc envelope to its RMS while
-        narrow GB lines still show as bumps above the residual floor
-        (in-band, thousands of noise bins per log-f pixel drop the RMS
-        floor well below the GB peak). Matches what the F1 residual-
-        spectrum panel already does (see the ``_bmean`` block below).
-        """
-        x = np.asarray(x, float)
-        y = np.abs(np.asarray(y))
-        pos = x > 0
-        if not pos.any():
-            return x[:0], y[:0]
-        xL, yL = x[pos], y[pos]
-        ed = np.logspace(np.log10(xL[0]), np.log10(xL[-1]), npts + 1)
-        bi = np.clip(np.searchsorted(ed, xL, side="right") - 1, 0, npts - 1)
-        cnt = np.bincount(bi, minlength=npts).astype(float)
-        s2 = np.bincount(bi, weights=yL ** 2, minlength=npts)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            rms = np.sqrt(s2 / np.maximum(cnt, 1))
-        fc = np.sqrt(ed[:-1] * ed[1:])
-        ok = cnt > 0
-        return fc[ok], rms[ok]
-
-    _cols = [
-        ("data (mojito " + " + ".join(_types) + ")",
-         [("data", data_fd, DIM, 1.0, 0.9)]),
-        ("template sum (GB + VGB)",
-         [("data", data_fd, DIM, 0.35, 0.9), ("GB", _tmpl["gb"], GREEN, 1.0, 0.7),
-          ("VGB", _tmpl["vgb"], VIOLET, 1.0, 0.7)]),
-        ("residual = data - templates",
-         [("data", data_fd, DIM, 0.55, 1.1),
-          ("residual", resid_fd, CYAN, 1.0, 0.7)]),
-    ]
-    if SNAP is not None:
-        _cols = [
-            ("data (as the run loaded it)", [("data", data_fd, DIM, 1.0, 0.9)]),
-            ("all fitted signals (data - residual)",
-             [("data", data_fd, DIM, 0.35, 0.9),
-              ("all signals", data_fd - resid_fd, GREEN, 1.0, 0.7)]),
-            ("residual (the run's own)",
-             [("data", data_fd, DIM, 0.55, 1.1),
-              ("residual", resid_fd, CYAN, 1.0, 0.7)]),
-        ]
-    fig, ax = plt.subplots(3, 3, figsize=(13.5, 8.2), sharex=True, sharey=True)
-    for r in range(3):
-        for c, (ttl, series) in enumerate(_cols):
-            a_ = ax[r][c]
-            for lab, arr, col, al, lw in series:
-                x_, y_ = _maxdec(_fs, arr[r][_sel])
-                y_ = np.where(y_ > _YLO, y_, np.nan)   # no off-scale spikes
-                a_.plot(x_, y_, color=col, lw=lw, alpha=al,
-                        label=(lab if r == 0 else None))
-            a_.set_xscale("log"); a_.set_yscale("log")
-            a_.axvline(_FLO, color=RED, ls=":", lw=1.0)
-            a_.axvline(_FHI, color=RED, ls=":", lw=1.0)
-            if r == 0:
-                a_.set_title(ttl, fontsize=10)
-                # lower-left is the one corner empty in all three columns
-                _lg = a_.legend(fontsize=8, loc="lower left")
-                for _lh in _lg.get_lines():
-                    _lh.set_linewidth(2.2)
-            if c == 0:
-                a_.set_ylabel(f"{CHN[r]}\n|TDI(f)|  [1/Hz]", fontsize=9)
-            if r == 2:
-                a_.set_xlabel("f [mHz]", fontsize=9)
-    ax[0][0].set_ylim(_YLO, 3e-15)
-    fig.suptitle(
-        f"frequency domain - cold walker {WBEST} (max lnL), stored iteration "
-        f"{NIT - 1} - dotted red = the run's GB band edges", fontsize=10,
-        color=FG)
+    _sel = (_fr >= band_edges[0]) & (_fr <= band_edges[-1])
     plt.rcParams.update({
     "figure.facecolor": PANEL, "axes.facecolor": PANEL, "savefig.facecolor": PANEL,
     "axes.edgecolor": LINE, "axes.labelcolor": FG, "text.color": FG,
@@ -4482,7 +4634,8 @@ try:
     "legend.frameon": False, "figure.dpi": 110,
     "text.usetex": _USETEX,
 })
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    fig = draw_fd_x_data_residual(_fr[_sel], data_fd[0][_sel], resid_fd[0][_sel],
+                                  band_edges[0], band_edges[-1])
     fig_b64(fig, "dtr_fd")
 
     # ===================== WDM figure =====================================
@@ -4492,44 +4645,64 @@ try:
     # resampling dropped single-column MBHB mergers at random per panel.
     # Each thunk builds ONE full-resolution |w| map; the figure pools it the
     # moment it exists, so no full-resolution map outlives its own pooling.
+    # Presentation layout (user request 2026-11-24): TDI X only, data | the
+    # residual, no MBHB merger ticks. Each thunk keeps channel X alone.
+    #
+    # WHITENED (user request 2026-11-24): both panels are divided, pixel by
+    # pixel, by sigma_X = sqrt(C_XX / (4 Delta)) (wdm_whitening_sigma_x), the
+    # noise level the run's likelihood expects there: the run's own noise
+    # model (run_noise_backend, digest-checked against the store's identity)
+    # at the noise parameters of the SAME walker and store row the residual
+    # comes from -- the snapshot's walker at the snapshot's row (the last
+    # complete row when the snapshot is newer), else WBEST at the last row.
+    # Pure noise then reads 1 everywhere. Pooled by RMS, on a fixed range.
+    # If the noise cannot be rebuilt the figure falls back to the unwhitened
+    # amplitudes, and MISSING says why.
+    _wsig = None
+    try:
+        from lisatools.globalfit.stock.erebor.noise import resolve_noise_file
+        _wident = read_noise_model_identity(h5path)
+        _wstr = re.search(r"unequal_arm_stride:\s*(\d+)", SETTINGS_TXT or "")
+        _wback = run_noise_backend(
+            _wdm, _wident, resolve_noise_file(MOJITO_CAT_DIR),
+            ltts_stride=int(_wstr.group(1)) if _wstr else 200)
+        _wwalk = int(SNAP["walker"]) if SNAP is not None else int(WBEST)
+        _wrow = psd_cold.shape[0] - 1
+        if SNAP is not None and SNAP["row"] is not None:
+            if int(SNAP["row"]) <= _wrow:
+                _wrow = int(SNAP["row"])
+            else:
+                MISSING.append(
+                    f"residual snapshot (store row {SNAP['row']}) is newer than "
+                    f"the last complete noise row {_wrow}; the time-frequency "
+                    f"map is whitened with walker {_wwalk}'s noise at row {_wrow}.")
+        _wpsd = np.asarray(psd_cold[_wrow, _wwalk], dtype=float)
+        if _wident.get("psd_log_sampling"):
+            _wpsd = np.exp(_wpsd)           # ln(Soms_d), ln(Sa_a) -> linear
+        _wsig = wdm_whitening_sigma_x(_wback, _wdm, _wpsd,
+                                      gal_cold_phys[_wrow, _wwalk])[None]
+        DTR.update(white=True, white_walker=_wwalk, white_row=_wrow)
+        del _wback
+    except Exception as _exc:  # noqa: BLE001 - fall back, never fail the page
+        MISSING.append(f"whitened time-frequency map unavailable ({_exc!r}); "
+                       f"it shows unwhitened amplitudes instead.")
+        _wsig = None
+
+    def _wdm_x(get):
+        """Thunk: channel X of ``get()`` as |w|, or whitened |w| / sigma_X."""
+        def _f():
+            m = np.abs(np.asarray(get()[:1], dtype=float))
+            return m if _wsig is None else m / _wsig
+        return _f
     if SNAP is not None:
         # the run's own arrays, on its own grid: no transform at all
-        _wdm_src = (
-            ("data", lambda: np.abs(np.asarray(SNAP["data"], dtype=float))),
-            ("tmpl", lambda: np.abs(np.asarray(SNAP["data"], dtype=float)
-                                    - SNAP["residual"])),
-            ("res", lambda: np.abs(np.asarray(SNAP["residual"], dtype=float))))
+        _wdm_src = (("data", _wdm_x(lambda: SNAP["data"])),
+                    ("res", _wdm_x(lambda: SNAP["residual"])))
     else:
-        def _wdm_abs(arr):
-            return lambda: np.abs(np.asarray(
-                FDSignal(arr.copy(), FDS).transform(_wdm).arr))
-        _wdm_src = (("data", _wdm_abs(data_fd)),
-                    ("tmpl", _wdm_abs(_tmpl["gb"] + _tmpl["vgb"])),
-                    ("res", _wdm_abs(resid_fd)))
+        _wdm_src = (
+            ("data", _wdm_x(lambda: FDSignal(data_fd.copy(), FDS).transform(_wdm).arr)),
+            ("res", _wdm_x(lambda: FDSignal(resid_fd.copy(), FDS).transform(_wdm).arr)))
     _te = np.asarray(_wdm.t_arr_edges); _fe = np.asarray(_wdm.f_arr_edges)
-    _tt = (["data (as the run loaded it)",
-            "all fitted signals (data - residual)",
-            f"residual (the run's own, walker {int(SNAP['walker'])}, "
-            + (f"store row {SNAP['row']})" if SNAP["row"] is not None else
-               f"job iteration {int(SNAP['iteration'])})")]
-           if SNAP is not None else
-           ["data", "template sum (GB + VGB)", "residual = data - templates"])
-    # MBHB MERGER TICKS. ``t_plunge`` is referenced to the MBH waveform epoch
-    # (stock ``mbh_waveform_t0`` = MOJITO_REFERENCE_TIME on mojito data); WDM
-    # layer 0 is the data start ``_t0_data`` (850.5 s later), and this axis
-    # starts at the first ACTIVE edge ``_te[0]`` (the edge crop, 2.5 d on the
-    # 6mo/9mo/1yr grids). So axis time = t_plunge - (data_t0 - epoch) - _te[0].
-    _merge_d, _merge_src = [], ""
-    try:
-        _mbh_c = _row("chain/mbh", (NIT - 1, 0, 0))
-        _mbh_i = _row("inds/mbh", (NIT - 1, 0, 0))
-        if _mbh_c is not None:
-            _merge_d = mbh_merger_plot_days(
-                _mbh_c, _mbh_i,
-                t_offset=(_t0_data - MOJITO_REFERENCE_TIME) + float(_te[0]))
-            _merge_src = f"MBH cold chain, store row {NIT - 1}"
-    except (KeyError, ValueError, IndexError):
-        pass        # no MBH branch in this store: no ticks, nothing to say
     plt.rcParams.update({
     "figure.facecolor": PANEL, "axes.facecolor": PANEL, "savefig.facecolor": PANEL,
     "axes.edgecolor": LINE, "axes.labelcolor": FG, "text.color": FG,
@@ -4543,17 +4716,19 @@ try:
     # addremove debug convention), plotted as a FRACTION of the row scale --
     # so the residual panel darkens as sources leave instead of
     # re-autoscaling; see draw_wdm_tf_panels.
-    _WDM_DPI = 88   # 9 dense images: the single most expensive PNG on the page
+    _WDM_DPI = 110  # two dense images (was 88 for the 3 x 3 grid)
     fig, _tfi = draw_wdm_tf_panels(
         _wdm_src, layer_dt=float(_wdm.layer_dt), layer_df=float(_wdm.layer_df),
         t_edge0=float(_te[0]), f_edge0=float(_fe[0]),
         nt=int(_wdm.Nt_active), nf=int(_wdm.Nf_active),
-        col_titles=_tt, row_names=CHN,
-        suptitle=(f"WDM domain - |w_mn| on the run's own grid "
-                  f"({_wdm.Nf_active} layers x {_wdm.layer_df * 1e3:.4f} mHz, "
-                  f"{int(_wdm.layer_dt)} s pixels) - shared linear scale per "
-                  f"channel row"),
-        mergers_d=_merge_d, merger_src=_merge_src, dpi=_WDM_DPI)
+        col_titles=["Data", "Residual"], row_names=["X"],
+        suptitle="TDI X: data and residual in WDM domain",
+        xlabel="Time [days]", ylabel="Frequency [Hz]",
+        cbar_label=(r"|WDM coefficient| / $\sigma_{{\rm noise}}$"
+                    if _wsig is not None else "|WDM coefficient| / {vmax:.2e}"),
+        pool="rms" if _wsig is not None else "max",
+        clim=(0.0, WHITE_VMAX) if _wsig is not None else None,
+        yscale="log", f_unit=1.0, dpi=_WDM_DPI, figsize=(14.0, 5.4))
     DTR.update(wdm_shape=(3, int(_wdm.Nf_active), int(_wdm.Nt_active)),
                wdm_pooled=_tfi["pooled_shape"], wdm_bt=_tfi["bt"], wdm_bf=_tfi["bf"],
                wdm_mergers=len(_tfi["mergers_d"]),
@@ -9238,51 +9413,29 @@ if DTR and "nbins" in DTR:
 else:
     cap_f1 = cap_f1b = ""
 
-# ---- captions for the restored data/template/residual panels --------------
-# Condensed from the pre-redesign page: same numbers, read off the same
-# arrays, without the method narrative that now lives in the appendix.
+# ---- notes under the data / residual panels -------------------------------
+# Presentation wording (user sign-off 2026-11-24). The residual is the run's
+# own (every fitted class subtracted) when a residual snapshot was read, else
+# this page's data minus the GB + VGB templates, and the notes say which.
 if DTR and "nbins" in DTR:
     _d = DTR
+    _subtr = ("all fitted signals" if _d.get("snap") else
+              "the fitted galactic and verification binaries")
+    _who = ("Calculated for the highest-likelihood ensemble walker at the "
+            "latest iteration in the cold chain.")
     dtr_fd_cap = (
-        f"Rows are the TDI channels the run analyses; columns are data, "
-        f"template sum and residual. Grey is the data, repeated faintly under "
-        f"the other two columns so the comparison is direct; green is the "
-        f"{_d['n_gb']} galactic-binary templates, violet the {_d['n_vgb']} "
-        f"verification binaries, cyan the residual. Dotted red marks the "
-        f"run's own band edges. At the loudest recovered source, "
-        f"{_d['chk_f0']:.5f} mHz, the peak bin falls by a factor "
-        f"{_d['chk_dpk'] / max(_d['chk_rpk'], 1e-99):.0f} and the power in the "
-        f"surrounding 81 bins drops to "
-        f"{100 * _d['chk_rp'] / max(_d['chk_dp'], 1e-99):.1f}% of the data. "
-        f"Across the whole band only "
-        f"{100 * (1 - _d['band_rp'] / max(_d['band_dp'], 1e-99)):.1f}% of the "
-        f"power has been removed &mdash; the unresolved galaxy is still there.")
+        f"TDI X spectrum of the data (grey) and of the residual after "
+        f"subtracting {_subtr} (cyan). {_who}")
     dtr_wdm_cap = (
-        f"The same three states on the run's own time-frequency grid: "
-        f"{_d['wdm_shape'][1]} layers of {_d['layer_df'] * 1e3:.4f} mHz by "
-        f"{int(_d['layer_dt'])} s, max-pooled to the image's pixel grid "
-        f"({_d['wdm_bt']} time pixels"
-        + (f" &times; {_d['wdm_bf']} layers" if _d.get("wdm_bf", 1) > 1 else "")
-        + f" per drawn cell, the same in all three columns). Taking the "
-        f"MAXIMUM, not a sample, keeps a one-pixel transient &mdash; an MBHB "
-        f"merger is a single {int(_d['layer_dt'])} s column &mdash; visible in "
-        f"every panel; it "
-        f"also lifts the noise floor slightly against an unpooled view. "
-        + (f"White ticks on the top and bottom edges mark the "
-           f"{_d['wdm_mergers']} MBHB merger times from the MBH cold chain. "
-           if _d.get("wdm_mergers") else "")
-        + f"One shared linear scale per channel row, keyed to that row's data "
-        f"panel, so a shrinking residual renders darker instead of "
-        f"rescaling itself back to full brightness. The horizontal tracks with "
-        f"annual brightness modulation are the recovered sources.")
-    dtr_note = (
-        f"Both are built for cold walker {_d['walker']}, the maximum-likelihood "
-        f"walker of the last stored iteration. Noise and foreground are not in "
-        f"the template sum &mdash; they shape the sensitivity the likelihood "
-        f"weights by, they are not subtracted, so the unresolved galaxy stays "
-        f"in the residual by construction.")
+        f"Time-frequency (WDM) map of the TDI X data (left) and of the "
+        f"residual after subtracting {_subtr} (right). {_who} The "
+        f"time-frequency grid is {_d['wdm_shape'][1]} layers of "
+        f"{_d['layer_df'] * 1e3:.4f} mHz by {int(_d['layer_dt'])} s."
+        + (" Both panels are whitened. Each pixel is divided by &sigma;<sub>noise</sub>, "
+           "which is the noise level of the run's noise model for the same "
+           "ensemble walker." if _d.get("white") else ""))
 else:
-    dtr_fd_cap = dtr_wdm_cap = dtr_note = ""
+    dtr_fd_cap = dtr_wdm_cap = ""
 
 NOISE_TXT = " and ".join(f"{100 * b:+.1f}%" for b in NOISE_BIAS)
 
@@ -9900,13 +10053,6 @@ curve above and through the residual, never against a number.</div></div>
 <div class="caption">{dtr_fd_cap}</div></div>
 <div class="panel">{img("dtr_wdm", "data / template / residual, time-frequency")}
 <div class="caption">{dtr_wdm_cap}</div></div>
-<div class="caption">{dtr_note}</div>
-<div class="caption">Data are the mojito Level-1 products the run itself loaded,
-re-transformed with the run&rsquo;s own window; templates are the last stored
-cold-chain coordinates of the highest-likelihood walker through the run&rsquo;s own
-transform and waveform generator. The noise branches shape the sensitivity the
-likelihood weights by and are never subtracted, so the unresolved galaxy stays in
-the residual by construction.</div>
 </section>
 
 <section id="foreground"><h2>Foreground &amp; Whitened Residual</h2>
