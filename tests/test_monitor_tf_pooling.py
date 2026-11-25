@@ -30,12 +30,13 @@ from lisatools.globalfit.monitor import generator_path  # noqa: E402
 from lisatools.globalfit.monitor._short import _generator_functions  # noqa: E402
 
 HELPERS = ("tf_pool_block", "pool_tf_for_display", "tf_display_grid",
+           "_noise_digest", "run_noise_backend", "wdm_whitening_sigma_x",
            "mbh_merger_plot_days", "draw_wdm_tf_panels")
 
 
 def _compile(**overrides):
     ns = {"np": np, "plt": plt, "FG": "#B8C6D4", "DIM": "#67788A"}
-    _generator_functions(ns, names=HELPERS, consts=("MBH_T_PLUNGE_COL",))
+    _generator_functions(ns, names=HELPERS, consts=("MBH_T_PLUNGE_COL", "WHITE_VMAX"))
     ns.update(overrides)
     return ns
 
@@ -330,20 +331,93 @@ class Wiring(unittest.TestCase):
         self.assertIsNone(re.search(r"DEC\)\.max\(axis=-1\)|\[\.\.\., *::", self.src))
 
     def test_the_grid_is_measured_at_the_dpi_the_png_is_saved_at(self):
-        self.assertIn("mergers_d=_merge_d, merger_src=_merge_src, dpi=_WDM_DPI)", self.block)
+        self.assertIn("dpi=_WDM_DPI, figsize=", self.block)
         self.assertIn('fig_b64(fig, "dtr_wdm", dpi=_WDM_DPI)', self.block)
 
     def test_every_panel_is_max_pooled_to_one_shared_grid_and_drawn_nearest(self):
         self.assertIn("n_cols, n_rows = tf_display_grid(ax.ravel(), dpi)", self.draw)
-        self.assertEqual(self.draw.count("pool_tf_for_display("), 1)
+        # one MAX call (|w|) and one MEAN-of-squares call (the RMS of a
+        # whitened map), both to the same shared grid
+        self.assertEqual(self.draw.count("pool_tf_for_display("), 2)
         self.assertIn('pool_tf_for_display(m, n_cols, n_rows, how="max")', self.draw)
+        self.assertIn("np.square(m), n_cols, n_rows, how=\"mean\")", self.draw)
         self.assertIn('interpolation="nearest"', self.draw)
         self.assertIn("np.nanpercentile(pooled[keys[0]][r], 99.5)", self.draw)
 
-    def test_merger_ticks_come_from_the_mbh_cold_chain(self):
-        self.assertIn('_row("chain/mbh", (NIT - 1, 0, 0))', self.block)
-        self.assertIn("t_offset=(_t0_data - MOJITO_REFERENCE_TIME) + float(_te[0])",
-                      self.block)
+    def test_the_page_draws_no_merger_ticks(self):
+        # user request 2026-11-24: the presentation figure drops the MBHB
+        # merger edge ticks (the helper keeps the option)
+        self.assertNotIn("mergers_d=", self.block)
+
+
+# --------------------------------------------------------------------------
+# the whitened map (user request 2026-11-24)
+# --------------------------------------------------------------------------
+class WhitenedMap(unittest.TestCase):
+    def test_rms_pooling_keeps_unit_noise_at_one_where_max_lifts_it(self):
+        z = np.random.default_rng(5).normal(size=(1, 40, 2800))
+        fig, info = NS["draw_wdm_tf_panels"](
+            [("data", lambda: np.abs(z)), ("res", lambda: np.abs(z))],
+            layer_dt=DT, layer_df=DF, t_edge0=0.0, f_edge0=0.0, nt=2800, nf=40,
+            col_titles=["Data", "Residual"], row_names=["X"], dpi=DPI,
+            figsize=(14.0, 5.4), pool="rms", clim=(0.0, NS["WHITE_VMAX"]))
+        self.assertGreater(info["bt"], 1)
+        rms = np.asarray(fig.axes[0].get_images()[0].get_array())
+        self.assertAlmostEqual(float(np.mean(rms)), 1.0, delta=0.05)
+        self.assertEqual(fig.axes[0].get_images()[0].get_clim(),
+                         (0.0, NS["WHITE_VMAX"]))
+        plt.close(fig)
+        mx = NS["pool_tf_for_display"](np.abs(z), info["n_cols"], how="max")
+        self.assertGreater(float(np.mean(mx)), 1.4)     # ~1.65 at ~5 cells per block
+
+    def test_sigma_is_sqrt_cxx_over_four_delta_and_nan_where_not_positive(self):
+        cxx = np.array([[4.0, 0.0], [1.0, -1.0]])
+
+        class _Sens:
+            sens_mat = np.zeros((3, 3, 2, 2))
+        _Sens.sens_mat[0, 0] = cxx
+
+        class _Wdm:
+            differential_component = 0.25
+        got = NS["wdm_whitening_sigma_x"](lambda *a, **k: _Sens, _Wdm, [1.0, 1.0],
+                                          [0.0] * 5)
+        np.testing.assert_allclose(got, [[2.0, np.nan], [1.0, np.nan]])
+
+    def test_the_noise_rebuild_refuses_a_store_without_identity_or_a_digest_mismatch(self):
+        with self.assertRaises(ValueError):
+            NS["run_noise_backend"](None, {}, None)
+        import lisatools.sensitivity as S
+        from unittest import mock
+        fake = mock.Mock(t=np.arange(3.0), ltts=np.ones((3, 6)))
+        with mock.patch.object(S.LinkDelayTable, "from_l1_file", return_value=fake):
+            with self.assertRaisesRegex(ValueError, "delay-table digest"):
+                NS["run_noise_backend"](
+                    None, dict(unequal_arm=True,
+                               instrument_component="UnequalArmInstrumentNoise",
+                               data_t0=0.0, ltts_digest="0" * 16), "noise.h5")
+
+    def test_log_frequency_draws_every_layer_on_exact_edges(self):
+        nf, nt = 40, 2800
+        z = np.random.default_rng(6).normal(size=(1, nf, nt))
+        fig, info = NS["draw_wdm_tf_panels"](
+            [("data", lambda: np.abs(z)), ("res", lambda: np.abs(z))],
+            layer_dt=DT, layer_df=DF, t_edge0=0.0, f_edge0=0.0, nt=nt, nf=nf,
+            col_titles=["Data", "Residual"], row_names=["X"], dpi=DPI,
+            figsize=(14.0, 5.4), pool="rms", clim=(0.0, NS["WHITE_VMAX"]),
+            yscale="log", f_unit=1.0)
+        panels = [a_ for a_ in fig.axes if a_.get_label() != "<colorbar>"]
+        cbar = [a_ for a_ in fig.axes if a_.get_label() == "<colorbar>"]
+        self.assertEqual(info["bf"], 1)                       # no frequency pooling
+        for a_ in panels:
+            self.assertEqual(a_.get_yscale(), "log")
+            mesh = a_.collections[0]
+            # the 0 Hz first edge is left off: nf - 1 rows of cells
+            self.assertEqual(mesh.get_array().shape[0], nf - 1)
+            self.assertAlmostEqual(a_.get_ylim()[0], DF)          # Hz
+            self.assertEqual(mesh.get_clim(), (0.0, NS["WHITE_VMAX"]))
+        self.assertEqual(len(cbar), 1)
+        self.assertEqual(cbar[0].get_ylim(), (0.0, NS["WHITE_VMAX"]))
+        plt.close(fig)
 
 
 if __name__ == "__main__":
